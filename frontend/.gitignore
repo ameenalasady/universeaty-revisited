@@ -1,0 +1,67 @@
+# .gitignore for Vite + React + TypeScript + Tailwind + shadcn/ui project
+
+# === Dependencies ===
+# Ignore node_modules directory, where project dependencies are installed.
+node_modules/
+
+# === Build Output ===
+# Ignore the default Vite build output directory.
+dist/
+# Ignore common alternative build output directory names.
+build/
+# Ignore Vite's internal cache and dependency optimization directory.
+.vite/
+# Ignore output directories sometimes used by deployment platforms (e.g., Vercel).
+.output/
+out/
+
+# === Logs ===
+# Ignore various log files.
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# === Runtime Data ===
+# Ignore environment variables files. DO NOT commit sensitive keys.
+.env
+.env.*
+# --- BUT --- allow example environment files to be committed.
+!*.env.example
+# Ignore TypeScript incremental build information files.
+*.tsbuildinfo
+
+# === Editor/IDE Files ===
+# Ignore VS Code specific settings and cache.
+.vscode/*
+# --- BUT --- allow shared VS Code settings if your team agrees.
+# !.vscode/settings.json
+# !.vscode/extensions.json
+# !.vscode/launch.json
+# Ignore JetBrains IDE (WebStorm, IntelliJ) specific files.
+.idea/
+
+# === OS Generated Files ===
+# Ignore macOS specific files.
+.DS_Store
+# Ignore Windows specific thumbnail cache files.
+Thumbs.db
+
+# === Testing ===
+# Ignore test coverage output directories.
+coverage/
+.nyc_output/
+
+# === Temporary Files ===
+# Ignore common temporary file extensions or patterns.
+*.tmp
+*.swp
+*~
+
+# === Miscellaneous ===
+# Ignore yarn cache directory if generated locally (less common now).
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
