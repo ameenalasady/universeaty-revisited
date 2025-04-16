@@ -175,3 +175,5 @@ credentials.txt
 *.xml
 
 tests/
+
+*.db
