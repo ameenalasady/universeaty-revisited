@@ -26,7 +26,6 @@ pnpm-debug.log*
 # === Runtime Data ===
 # Ignore environment variables files. DO NOT commit sensitive keys.
 .env
-.env.*
 # --- BUT --- allow example environment files to be committed.
 !*.env.example
 # Ignore TypeScript incremental build information files.
