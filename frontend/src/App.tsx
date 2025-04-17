@@ -850,7 +850,7 @@ function App() {
           </Button>
           <Button variant="link" asChild className="text-muted-foreground">
             <a
-              href="https://github.com/ameenalasady/Universeaty"
+              href="https://github.com/ameenalasady/universeaty-revisited"
               target="_blank"
               rel="noopener noreferrer"
             >
