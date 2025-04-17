@@ -13,6 +13,15 @@ import sqlite3
 from datetime import datetime
 import logging
 from dotenv import load_dotenv
+import sys
+
+# --- Centralized Logging Setup ---
+"""
+Imports the centralized logging configuration from logging_config.py.
+This sets up file and console handlers for the entire application.
+Must be imported before the first logging call.
+"""
+import logging_config
 
 # --- Environment and Configuration Loading ---
 """
@@ -34,10 +43,11 @@ DEFAULT_UPDATE_INTERVAL = 3600 # Update terms/course lists every hour
 Configures the logging module to provide informative output during execution.
 Sets the logging level to INFO and defines a standard format for log messages,
 including timestamp, level, thread name, and the message itself.
+THIS IS NOW HANDLED BY logging_config.py
 """
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(threadName)s - %(message)s')
-log = logging.getLogger(__name__)
+# logging.basicConfig(level=logging.INFO,
+#                     format='%(asctime)s - %(levelname)s - %(threadName)s - %(message)s') # <<< REMOVED
+log = logging.getLogger(__name__) # Gets logger configured by logging_config
 
 # --- TypedDicts for Data Structures ---
 """
@@ -99,6 +109,7 @@ def send_email(email_address: str, subject: str, message: str) -> bool:
             smtp.login(EMAIL_SENDER, EMAIL_PASSWORD)
             smtp.sendmail(EMAIL_SENDER, email_address, em.as_string())
         log.info(f"Email successfully sent to {email_address} with subject '{subject}'")
+        # log.debug(f"Email body sent to {email_address}: {message[:100]}...") # Optional debug log
         return True
     except smtplib.SMTPAuthenticationError:
         log.error(f"SMTP Authentication Error for {EMAIL_SENDER}. Check email/password (App Password?).")
@@ -154,6 +165,7 @@ class McMasterTimetableClient:
         self._initialize()
         # Start background tasks after the initial data load
         self.start_periodic_tasks(update_interval, check_interval)
+        log.info(f"Client initialization complete. Background tasks scheduled.")
 
     def _initialize(self):
         """
@@ -163,16 +175,19 @@ class McMasterTimetableClient:
         exists, and performs the first fetch of term and course data to populate
         the client's internal caches.
         """
-        log.info("Initializing client...")
+        log.info("Initializing client session, database, and performing initial data fetch...")
         self._init_headers()
         self._init_other_settings()
         self._init_db()
         log.info("Fetching initial terms...")
+        start_time = time.time()
         self._fetch_and_parse_terms()
-        log.info(f"Found {len(self.terms)} terms.")
+        log.info(f"Found {len(self.terms)} terms. (Took {time.time() - start_time:.2f}s)")
         log.info("Fetching initial course lists for all terms (this may take a moment)...")
+        start_time = time.time()
         self._fetch_and_parse_courses()
-        log.info("Initialization complete.")
+        total_courses = sum(len(v) for v in self.courses.values())
+        log.info(f"Finished fetching initial courses for {len(self.courses)} terms. Total unique courses: {total_courses}. (Took {time.time() - start_time:.2f}s)")
 
     def _init_headers(self):
         """Sets default HTTP headers for the requests session."""
@@ -273,7 +288,10 @@ class McMasterTimetableClient:
 
             # Update the shared terms list safely
             with self.terms_lock:
+                old_count = len(self.terms)
                 self.terms = temp_terms
+                new_count = len(self.terms)
+                log.debug(f"Terms updated. Old count: {old_count}, New count: {new_count}")
 
         except requests.exceptions.RequestException as e:
             log.error(f"Error fetching terms page: {e}")
@@ -368,7 +386,12 @@ class McMasterTimetableClient:
 
         # Update the shared courses dictionary safely
         with self.courses_lock:
+            old_term_count = len(self.courses)
+            old_total_courses = sum(len(v) for v in self.courses.values())
             self.courses = temp_courses
+            new_term_count = len(self.courses)
+            new_total_courses = sum(len(v) for v in self.courses.values())
+            log.debug(f"Courses updated. Terms: {old_term_count}->{new_term_count}. Total courses: {old_total_courses}->{new_total_courses}")
 
     def get_terms(self) -> List[Dict[str, str]]:
         """Returns a thread-safe copy of the currently known list of terms."""
@@ -430,6 +453,7 @@ class McMasterTimetableClient:
         """
         if not course_codes:
             return {}
+        log.debug(f"Fetching course details for Term={term_id}, Courses={course_codes}")
 
         api_endpoint = f"{self.base_url}/api/class-data"
         t, e = self._get_t_and_e() # Get required time-based parameters
@@ -454,6 +478,7 @@ class McMasterTimetableClient:
             headers['Referer'] = f"{self.base_url}/index.jsp" # Mimic browser navigation
 
             response = self.session.get(api_endpoint, params=params, headers=headers)
+            log.debug(f"Course details API request URL: {response.url}")
             response.raise_for_status() # Check for HTTP errors
 
             # Handle empty but successful responses
@@ -465,6 +490,8 @@ class McMasterTimetableClient:
             # Keep track of processed blocks to handle potential duplicates in API response
             processed_block_keys: Dict[str, set] = {code: set() for code in course_codes}
 
+            num_courses_processed = 0
+            num_sections_processed = 0
             # Iterate through each course returned in the XML
             for course_element in soup.find_all('course'):
                 formatted_key = course_element.get('key') # e.g., "COMPSCI-1JC3"
@@ -474,6 +501,7 @@ class McMasterTimetableClient:
 
                 original_course_code = original_code_map[formatted_key]
                 blocks = course_element.find_all('block') # Find all section blocks within the course
+                num_courses_processed += 1
 
                 # Iterate through each section block (LEC, LAB, TUT, etc.)
                 for block in blocks:
@@ -507,11 +535,14 @@ class McMasterTimetableClient:
                         # Add the section info to the results, grouped by block type
                         results[original_course_code][block_type].append(section_info)
                         processed_block_keys[original_course_code].add(key) # Mark as processed
+                        num_sections_processed += 1
 
                     except (ValueError, TypeError) as conv_err:
                         log.error(f"Data conversion error for block in {original_course_code} (Key: {key}): {conv_err}. Attrs: {block.attrs}")
                     except Exception as parse_err:
                         log.error(f"Error parsing block for {original_course_code} (Key: {key}): {parse_err}. Block: {block}")
+
+            log.debug(f"Processed details for {num_courses_processed} courses and {num_sections_processed} sections from API response.")
 
         except requests.exceptions.Timeout:
              log.warning(f"Timeout fetching course details for term {term_id}, courses: {course_codes}")
@@ -549,7 +580,7 @@ class McMasterTimetableClient:
         Returns:
             A tuple: (bool success, str message) indicating the outcome.
         """
-        log.info(f"Received watch request: Email={email}, Term={term_id}, Course={course_code}, SectionKey={section_key}")
+        log.info(f"Attempting to add watch request: Email={email}, Term={term_id}, Course={course_code}, SectionKey={section_key}")
 
         # Basic Validation
         if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
@@ -609,7 +640,7 @@ class McMasterTimetableClient:
             return False, msg
 
         # Add the validated request to the database
-        log.info(f"Validation successful for {email} watching {course_code} {section_display_name}. Adding to DB.")
+        log.info(f"Validation successful for {email} watching {course_code} {section_display_name} (Key: {section_key}). Adding to DB.")
         with self.db_lock:
             try:
                 conn = sqlite3.connect(self.db_path, check_same_thread=False)
@@ -620,8 +651,9 @@ class McMasterTimetableClient:
                     (email, term_id, course_code, section_key, section_display_name, STATUS_PENDING)
                 )
                 conn.commit()
+                request_id = cursor.lastrowid
                 conn.close()
-                msg = f"Successfully added watch request for {course_code} {section_display_name}."
+                msg = f"Successfully added watch request (ID: {request_id}) for {course_code} {section_display_name}."
                 log.info(f"Watch request successful: {msg}")
                 return True, msg
             except sqlite3.IntegrityError:
@@ -652,7 +684,7 @@ class McMasterTimetableClient:
            - Updates the request status in the database (notified, error/cancelled, or just updates last_checked_at).
         5. Handles cases where a section might no longer exist (marks as error/cancelled).
         """
-        log.info("Starting check for watched courses...")
+        log.info("Starting periodic check for watched courses...")
         pending_requests: List[Dict[str, Any]] = []
 
         # Get all pending requests from DB
@@ -675,7 +707,7 @@ class McMasterTimetableClient:
             log.info("No pending course watch requests found.")
             return
 
-        log.info(f"Found {len(pending_requests)} pending watch requests.")
+        log.info(f"Found {len(pending_requests)} pending watch requests to check.")
 
         # Group requests by term to optimize API calls
         requests_by_term: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
@@ -758,6 +790,7 @@ class McMasterTimetableClient:
 
         # Update database statuses in bulk after checking all requests
         if notified_ids or error_ids or checked_ids:
+            updated_pending = 0
             with self.db_lock:
                 try:
                     conn = sqlite3.connect(self.db_path, check_same_thread=False)
@@ -788,7 +821,8 @@ class McMasterTimetableClient:
                     processed_ids = set(notified_ids) | set(error_ids)
                     remaining_checked_ids = [id for id in checked_ids if id not in processed_ids]
                     if remaining_checked_ids:
-                         log.debug(f"Updating last_checked_at for {len(remaining_checked_ids)} still-pending requests.")
+                         updated_pending = len(remaining_checked_ids)
+                         log.debug(f"Updating last_checked_at for {updated_pending} still-pending requests.")
                          placeholders = ','.join('?' * len(remaining_checked_ids))
                          cursor.execute(
                              f"UPDATE {WATCH_REQUESTS_TABLE} SET last_checked_at = ? WHERE id IN ({placeholders}) AND status = ?", # Only update pending ones
@@ -797,14 +831,14 @@ class McMasterTimetableClient:
 
                     conn.commit()
                     conn.close()
-                    log.info("Database updates for watch requests complete.")
+                    log.info(f"Database updates complete. Notified: {len(set(notified_ids))}. Error/Cancelled: {len(set(error_ids))}. Still Pending (checked): {updated_pending}.")
                 except sqlite3.Error as e:
                     log.error(f"Database error updating watch request statuses: {e}")
                     if 'conn' in locals() and conn:
                         conn.rollback()
                         conn.close()
 
-        log.info("Finished checking watched courses.")
+        log.info("Finished periodic check for watched courses.")
 
 
     # --- Background Task Management ---
@@ -853,14 +887,16 @@ class McMasterTimetableClient:
         the methods to fetch and parse term and course data. Handles potential
         exceptions during the update process.
         """
+        log.info(f"Term/Course Updater thread started. Update interval: {interval}s.")
         while True:
             log.info(f"Term/Course Updater sleeping for {interval} seconds...")
             time.sleep(interval)
-            log.info(f"Term/Course Updater: Updating terms and courses...")
+            log.info(f"Term/Course Updater: Running update...")
+            start_time = time.time()
             try:
                 self._fetch_and_parse_terms()
                 self._fetch_and_parse_courses()
-                log.info("Term/Course Updater: Update finished.")
+                log.info(f"Term/Course Updater: Update finished successfully. (Took {time.time() - start_time:.2f}s)")
             except Exception as e:
                 # Log exceptions but continue running
                 log.error(f"Term/Course Updater: Error during periodic update: {e}", exc_info=True)
@@ -873,14 +909,16 @@ class McMasterTimetableClient:
         loop, sleeping for the specified interval, and calling the method to check
         watched courses and send notifications. Handles potential exceptions during the check.
         """
-        log.info("Watch Checker: Performing initial check soon...")
+        log.info(f"Watch Checker thread started. Check interval: {interval}s.")
+        log.info("Watch Checker: Performing initial check in 15 seconds...")
         time.sleep(15) # Wait briefly after initialization before first check
 
         while True:
             log.info(f"Watch Checker: Running check...")
+            start_time = time.time()
             try:
                 self._check_watched_courses()
-                log.info(f"Watch Checker: Check complete.")
+                log.info(f"Watch Checker: Check complete. (Took {time.time() - start_time:.2f}s)")
             except Exception as e:
                 # Log exceptions but continue running
                 log.error(f"Watch Checker: Error during periodic check: {e}", exc_info=True)
@@ -907,6 +945,8 @@ if __name__ == '__main__':
     if not EMAIL_PASSWORD or not EMAIL_SENDER:
         log.critical("CRITICAL: 'PASSWORD' or 'EMAIL_SENDER' environment variable not set. Email notifications will fail.")
         # Consider exiting if email is essential: exit(1)
+
+    log.info("Starting timetable client script...")
 
     # Initialize the client (adjust intervals for testing if needed)
     client = McMasterTimetableClient(check_interval=60, update_interval=300) # Check every 1 min, update lists every 5 mins
@@ -977,5 +1017,10 @@ if __name__ == '__main__':
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        log.info("\nCtrl+C received. Shutting down.")
+        log.info("\nCtrl+C received. Shutting down application.")
         # Background daemon threads will exit automatically when the main thread ends.
+    except Exception as e:
+        log.critical(f"Unexpected error in main execution loop: {e}", exc_info=True)
+        # Consider cleanup or exit code here
+    finally:
+        log.info("Application has stopped.")

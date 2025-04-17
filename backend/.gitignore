@@ -177,3 +177,5 @@ credentials.txt
 tests/
 
 *.db
+
+logs/

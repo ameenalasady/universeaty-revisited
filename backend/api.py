@@ -1,3 +1,5 @@
+# api.py
+
 # --- Core Imports ---
 """
 Imports necessary libraries:
@@ -10,14 +12,23 @@ Imports necessary libraries:
 - dotenv: To load environment variables (like email credentials) from a .env file.
 - time: Standard library for time-related functions (though minimally used here directly).
 """
-import logging
+import logging # Keep this import
 import re
-from flask import Flask, request, jsonify
+import sys # Keep this import for potential early errors
+from flask import Flask, request, jsonify, g # <<< ADD g
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_cors import CORS
 from dotenv import load_dotenv
 import time
+
+# --- Centralized Logging Setup ---
+"""
+Imports the centralized logging configuration from logging_config.py.
+This sets up file and console handlers for the entire application.
+Must be imported before the first logging call.
+"""
+import logging_config
 
 # --- Application-Specific Imports ---
 """
@@ -35,8 +46,9 @@ try:
         EMAIL_PASSWORD, # Used for crucial functionality check
     )
 except ImportError:
-    print("Error: Could not import McMasterTimetableClient.")
-    print("Ensure 'timetable_client.py' exists and is in the same directory or Python path.")
+    # Use print here as logging might not be configured if import fails early
+    print("Error: Could not import McMasterTimetableClient.", file=sys.stderr)
+    print("Ensure 'timetable_client.py' exists and is in the same directory or Python path.", file=sys.stderr)
     exit(1) # Stop execution if client cannot be imported
 
 # --- Configuration & Initialization ---
@@ -69,10 +81,12 @@ CORS(app, origins=allowed_origins, supports_credentials=True)
 Configures logging for the application. It uses Flask's default logger ('werkzeug')
 and sets a basic configuration for log level (INFO) and message format. This ensures
 that requests and important application events are logged for monitoring and debugging.
+THIS IS NOW HANDLED BY logging_config.py
 """
-log = logging.getLogger('werkzeug') # Get Flask's request/response logger
+# log = logging.getLogger('werkzeug') # Get Flask's request/response logger # <<< REMOVED
+log = logging.getLogger(__name__) # Use application-specific logger
 # Set a more detailed format and ensure INFO level is captured
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s') # <<< REMOVED
 
 # --- Rate Limiting Setup ---
 """
@@ -118,6 +132,61 @@ except Exception as e:
     # Log the critical failure and ensure client remains None
     log.critical(f"Failed to initialize McMasterTimetableClient: {e}", exc_info=True)
     client = None # Explicitly ensure client is None on failure
+
+
+# --- Request/Response Logging ---
+"""
+Uses Flask decorators to log information about each incoming request
+and its corresponding response. Logs request details before processing
+and response details (including duration) after processing. Also logs
+unhandled exceptions during request handling.
+"""
+@app.before_request
+def log_request_info():
+    """Logs information *before* the request is processed."""
+    g.start_time = time.time() # Store start time for duration calculation
+    log.info(f"Request Start: {request.method} {request.path} from {request.remote_addr}")
+    # Optional: Log headers or body (use with caution for sensitive data)
+    # log.debug(f"Request Headers: {dict(request.headers)}")
+    # if request.is_json:
+    #     try:
+    #         log.debug(f"Request JSON: {request.get_json(silent=True)}") # silent=True prevents crash on bad JSON
+    #     except Exception:
+    #         log.warning("Could not parse request JSON for logging.")
+    # elif request.form:
+    #     log.debug(f"Request Form: {request.form.to_dict()}")
+
+@app.after_request
+def log_response_info(response):
+    """Logs information *after* the request has been processed successfully."""
+    duration_ms = (time.time() - g.start_time) * 1000 if hasattr(g, 'start_time') else -1
+    log.info(
+        f"Request End: {request.method} {request.path} from {request.remote_addr} "
+        f"- Status: {response.status_code} - Duration: {duration_ms:.2f}ms"
+    )
+    # Optional: Log response data (careful with size/sensitivity)
+    # if response.is_json:
+    #     try:
+    #         log.debug(f"Response JSON: {response.get_json()}")
+    #     except Exception:
+    #         log.debug("Could not get response JSON for logging.")
+    return response
+
+@app.teardown_request
+def log_exception_info(exception=None):
+    """Logs any exception that occurred during the request handling."""
+    # This runs *after* the response is sent, even if an exception occurred.
+    # Note: Standard Flask error handlers (@app.errorhandler) usually log exceptions too.
+    # This provides an additional layer, especially for unhandled ones or issues
+    # during response generation *after* the main view function returns.
+    if exception is not None:
+        duration_ms = (time.time() - g.start_time) * 1000 if hasattr(g, 'start_time') else -1
+        log.error(
+            f"Request Exception: {request.method} {request.path} from {request.remote_addr} "
+            f"- Duration: {duration_ms:.2f}ms - Exception: {exception}",
+            exc_info=exception # Provide full traceback for errors
+        )
+
 
 # --- Helper Functions ---
 """
@@ -186,6 +255,7 @@ def get_terms_endpoint():
 
     try:
         terms = active_client.get_terms()
+        log.debug(f"Retrieved {len(terms)} terms for /terms endpoint.")
         return jsonify(terms)
     except Exception as e:
         log.error(f"Error in /terms endpoint: {e}", exc_info=True)
@@ -212,6 +282,7 @@ def get_courses_endpoint(term_id):
     if isinstance(active_client, tuple): return active_client
 
     if not term_id.isdigit():
+        log.warning(f"Invalid term ID format requested: {term_id}")
         return jsonify({"error": "Invalid term ID format. Must be numeric."}), 400
 
     try:
@@ -226,6 +297,8 @@ def get_courses_endpoint(term_id):
         if courses is None:
              log.warning(f"Course data requested but not available for term '{term_id}'.")
              return jsonify({"error": f"Course data not available for term '{term_id}'. Check back later."}), 503
+
+        log.debug(f"Retrieved {len(courses)} courses for term {term_id}.")
         return jsonify(courses)
     except Exception as e:
         log.error(f"Error in /courses/{term_id} endpoint: {e}", exc_info=True)
@@ -285,6 +358,7 @@ def get_course_details_endpoint(term_id, course_code):
              return jsonify({"error": f"Course code '{normalized_course_code}' not found in term '{term_id}'."}), 404
 
         # Fetch details using the normalized code
+        log.info(f"Fetching details for course '{normalized_course_code}' in term {term_id}.")
         details = active_client.get_course_details(term_id, [normalized_course_code])
         course_detail_data = details.get(normalized_course_code)
 
@@ -293,6 +367,7 @@ def get_course_details_endpoint(term_id, course_code):
             log.warning(f"Details requested but not found or empty for '{normalized_course_code}' in term {term_id}.")
             return jsonify({"error": f"Could not retrieve details for course '{normalized_course_code}' in term '{term_id}'. It might have no sections listed or data is currently unavailable."}), 404
 
+        # log.debug(f"Successfully retrieved details for {normalized_course_code} (Term {term_id}): {course_detail_data}") # Optional debug log
         return jsonify(course_detail_data)
 
     except Exception as e:
@@ -375,8 +450,10 @@ def add_watch_endpoint():
         payload["section_key"] = section_key.strip()
 
     if validation_errors:
-         log.warning(f"Watch request failed due to validation errors: {validation_errors}")
+         log.warning(f"Watch request failed validation for {request.remote_addr}. Errors: {validation_errors}")
          return jsonify({"error": "Invalid input provided.", "details": validation_errors}), 400
+
+    log.info(f"Processing watch request from {payload.get('email', 'N/A')} for {payload.get('course_code','N/A')} [{payload.get('section_key','N/A')}] in term {payload.get('term_id','N/A')}")
 
     # --- Interaction with Client ---
     try:
@@ -407,7 +484,7 @@ def add_watch_endpoint():
 
         # Handle response from the client
         if success:
-            log.info(f"Successfully added watch request for {payload['email']} - {payload['course_code']} ({payload['section_key']}) in term {payload['term_id']}")
+            log.info(f"Successfully processed watch request for {payload['email']} - {payload['course_code']} ({payload['section_key']}). Message: {message}")
             return jsonify({"message": message}), 201 # Use 201 Created status code
         else:
             # Map client error messages to appropriate HTTP status codes
@@ -421,7 +498,7 @@ def add_watch_endpoint():
             elif "Database error" in message:
                  status_code = 500 # Internal Server Error
 
-            log.warning(f"Failed watch request for {payload['email']}, {payload['course_code']}, {payload['section_key']}: {message} (Status Code: {status_code})")
+            log.warning(f"Failed processing watch request for {payload['email']}, {payload['course_code']}, {payload['section_key']}: {message} (Status Code: {status_code})")
             return jsonify({"error": message}), status_code
 
     except Exception as e:
@@ -443,6 +520,7 @@ def handle_bad_request(error):
     response = getattr(error, 'response', None)
     if response and response.is_json: return response
     description = getattr(error, 'description', 'Bad Request')
+    log.warning(f"Returning 400 Bad Request: {description}")
     return jsonify(error=description), 400
 
 @app.errorhandler(404)
@@ -451,6 +529,7 @@ def handle_not_found(error):
     response = getattr(error, 'response', None)
     if response and response.is_json: return response
     description = getattr(error, 'description', 'The requested resource was not found.')
+    log.warning(f"Returning 404 Not Found for {request.path}: {description}")
     return jsonify(error=description), 404
 
 @app.errorhandler(405)
@@ -459,17 +538,21 @@ def handle_method_not_allowed(error):
     response = getattr(error, 'response', None)
     allowed_methods = response.headers.get('Allow') if response else None
     message = "Method Not Allowed." + (f" Allowed methods: {allowed_methods}" if allowed_methods else "")
+    log.warning(f"Returning 405 Method Not Allowed for {request.method} {request.path}")
     return jsonify(error=message), 405
 
 @app.errorhandler(429)
 def handle_rate_limit(error):
     """Handles 429 Too Many Requests errors from Flask-Limiter."""
+    log.warning(f"Rate limit exceeded for {request.remote_addr} ({request.path}): {error.description}")
     return jsonify(error=f"Rate limit exceeded: {error.description}"), 429
 
 @app.errorhandler(500)
 def handle_internal_server_error(error):
     """Handles 500 Internal Server Error, logging the error and returning a generic message."""
-    log.error(f"Internal Server Error encountered: {error}", exc_info=True)
+    # Note: The actual exception might be logged by @app.teardown_request as well.
+    # This ensures a generic JSON response is sent.
+    log.error(f"Returning 500 Internal Server Error for {request.path}: {error}", exc_info=True) # Ensure traceback is logged here too
     return jsonify(error="An unexpected internal error occurred. Please try again later."), 500
 
 @app.errorhandler(503)
@@ -478,13 +561,15 @@ def handle_service_unavailable(error):
     response = getattr(error, 'response', None)
     if response and response.is_json: return response
     description = getattr(error, 'description', 'The service is temporarily unavailable. Please try again later.')
+    log.error(f"Returning 503 Service Unavailable for {request.path}: {description}")
     return jsonify(error=description), 503
 
 # Catch-all handler for any otherwise unhandled exceptions
 @app.errorhandler(Exception)
 def handle_generic_exception(e):
     """Generic handler for any uncaught exceptions, logs error and returns 500."""
-    log.error(f"Unhandled Exception caught by generic handler: {e}", exc_info=True)
+    # This might catch exceptions before specific error handlers if they are more general.
+    log.critical(f"Unhandled Exception caught by generic handler for {request.path}: {e}", exc_info=True) # Log as critical
     return jsonify(error="An unexpected error occurred."), 500
 
 
@@ -502,7 +587,12 @@ if __name__ == '__main__':
         log.critical("Flask app starting, BUT McMasterTimetableClient FAILED to initialize. API functionality will be severely limited.")
         # The server will start, but endpoints relying on the client will return 503.
 
-    log.info("Starting Flask development server...")
+    log.info("Starting Flask development server on host 0.0.0.0, port 5000...")
     # Note: debug=False is recommended for production. Use WSGI server (Gunicorn/uWSGI) in production.
     # Example: gunicorn --workers 4 --bind 0.0.0.0:5000 api:app
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    try:
+        app.run(host='0.0.0.0', port=5000, debug=False)
+    except Exception as e:
+        log.critical(f"Flask server failed to start or crashed: {e}", exc_info=True)
+    finally:
+        log.info("Flask application shutdown.")
