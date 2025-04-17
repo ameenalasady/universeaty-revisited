@@ -178,4 +178,6 @@ tests/
 
 *.db
 
+.python-version
+
 logs/

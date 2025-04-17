@@ -14,13 +14,14 @@ Imports necessary libraries:
 """
 import logging # Keep this import
 import re
-import sys # Keep this import for potential early errors
-from flask import Flask, request, jsonify, g # <<< ADD g
+import sys
+from flask import Flask, request, jsonify, g
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_cors import CORS
 from dotenv import load_dotenv
 import time
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # --- Centralized Logging Setup ---
 """
@@ -59,6 +60,14 @@ contains sensitive data like EMAIL_PASSWORD. Initializes the core Flask applicat
 load_dotenv()
 app = Flask(__name__)
 
+app.wsgi_app = ProxyFix(
+    app.wsgi_app,
+    x_for=1,     # trust X-Forwarded-For
+    x_proto=1,   # trust X-Forwarded-Proto
+    x_host=1,    # trust X-Forwarded-Host
+    x_prefix=1,
+)
+
 # --- CORS (Cross-Origin Resource Sharing) Configuration ---
 """
 Configures CORS settings for the Flask application. This is crucial for allowing
@@ -83,10 +92,7 @@ and sets a basic configuration for log level (INFO) and message format. This ens
 that requests and important application events are logged for monitoring and debugging.
 THIS IS NOW HANDLED BY logging_config.py
 """
-# log = logging.getLogger('werkzeug') # Get Flask's request/response logger # <<< REMOVED
 log = logging.getLogger(__name__) # Use application-specific logger
-# Set a more detailed format and ensure INFO level is captured
-# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s') # <<< REMOVED
 
 # --- Rate Limiting Setup ---
 """
@@ -98,7 +104,7 @@ within certain time windows. Sets default limits and uses in-memory storage
 limiter = Limiter(
     get_remote_address, # Function to identify the client (by remote IP)
     app=app,
-    default_limits=["200 per day", "50 per hour"], # Global default limits
+    default_limits=["300 per hour", "45 per minute", "3 per second"], # Global default limits
     storage_uri="memory://", # Storage backend for rate limit counts
     strategy="fixed-window" # Rate limiting strategy
 )
@@ -215,7 +221,7 @@ def get_client_or_abort():
 # --- API Endpoints ---
 
 @app.route('/health', methods=['GET'])
-@limiter.limit("120 per minute") # Higher limit for frequent monitoring checks
+@limiter.limit("30 per minute") # Higher limit for frequent monitoring checks
 def health_check():
     """
     Endpoint: GET /health
@@ -239,7 +245,7 @@ def health_check():
 
 
 @app.route('/terms', methods=['GET'])
-@limiter.limit("30 per minute")
+@limiter.limit("60 per minute; 5 per second")
 def get_terms_endpoint():
     """
     Endpoint: GET /terms
@@ -262,7 +268,7 @@ def get_terms_endpoint():
         return jsonify({"error": "An internal error occurred retrieving terms."}), 500
 
 @app.route('/courses/<string:term_id>', methods=['GET'])
-@limiter.limit("60 per minute")
+@limiter.limit("60 per minute; 5 per second")
 def get_courses_endpoint(term_id):
     """
     Endpoint: GET /courses/<term_id>
@@ -306,7 +312,7 @@ def get_courses_endpoint(term_id):
 
 
 @app.route('/course_details/<string:term_id>/<path:course_code>', methods=['GET'])
-@limiter.limit("30 per minute")
+@limiter.limit("100 per hour; 15 per minute; 2 per second")
 def get_course_details_endpoint(term_id, course_code):
     """
     Endpoint: GET /course_details/<term_id>/<course_code>
@@ -376,7 +382,7 @@ def get_course_details_endpoint(term_id, course_code):
 
 
 @app.route('/watch', methods=['POST'])
-@limiter.limit("10 per minute") # More strict limit for resource-intensive/state-changing action
+@limiter.limit("30 per hour; 10 per minute; 3 per 10 seconds")
 def add_watch_endpoint():
     """
     Endpoint: POST /watch
