@@ -653,7 +653,7 @@ function App() {
   return (
     <TooltipProvider>
       {/* Main container */}
-      <div className="container mx-auto p-4 md:p-8 lg:p-12 min-h-screen flex flex-col">
+      <div className="container mx-auto p-4 md:p-8 lg:p-12 min-h-[100dvh] flex flex-col">
         {/* Notification container */}
         <Toaster richColors position="top-right" theme="system" closeButton />
 
@@ -761,9 +761,12 @@ function App() {
                   </PopoverTrigger>
                   {/* Popover Content: Searchable Course List */}
                   <PopoverContent
-                    className="p-0 max-w-[80vw]" // Remove padding, allow wider content
+                    className="p-0 max-w-[80vw]"
+                    side="bottom"
+                    align="start"
+                    avoidCollisions={false}
                     style={{
-                      minWidth: "max(var(--radix-popover-trigger-width))", // Match trigger width
+                      minWidth: "max(var(--radix-popover-trigger-width))",
                     }}
                   >
                     <Command shouldFilter={false}> {/* Disable default filtering */}
@@ -847,7 +850,7 @@ function App() {
           </Button>
           <Button variant="link" asChild className="text-muted-foreground">
             <a
-              href="https://github.com/ameenalasady/Universeaty"
+              href="https://github.com/ameenalasady/universeaty-revisited"
               target="_blank"
               rel="noopener noreferrer"
             >
