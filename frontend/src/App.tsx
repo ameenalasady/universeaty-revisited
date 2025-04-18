@@ -658,7 +658,7 @@ function App() {
         <Toaster richColors position="top-right" theme="system" closeButton />
 
         {/* Header */}
-        <header className="py-6 text-center">
+        <header className="pt-3 pb-6 text-center">
           <div className="">
             <h1 className=" text-3xl sm:text-4xl font-bold tracking-tight">
               universeaty.ca
