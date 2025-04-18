@@ -61,17 +61,6 @@ class SectionInfo(TypedDict):
     open_seats: int
     block_type: str
 
-# --- Database Constants ---
-"""
-Defines constants related to the SQLite database schema, specifically the table name
-for watch requests and the possible status values for each request. Using constants
-avoids hardcoding strings and reduces the risk of typos.
-"""
-WATCH_REQUESTS_TABLE = "watch_requests"
-STATUS_PENDING = "pending"
-STATUS_NOTIFIED = "notified"
-STATUS_ERROR = "error"
-STATUS_CANCELLED = "cancelled"
 
 # --- Email Sending Function ---
 def send_email(email_address: str, subject: str, message: str) -> bool:
@@ -162,6 +151,14 @@ class McMasterTimetableClient:
         self.courses: Dict[str, List[str]] = {}
         self.courses_lock = threading.Lock() # Lock for accessing/modifying courses dict
 
+
+        # --- Database Constants within the class scope ---
+        self.WATCH_REQUESTS_TABLE = "watch_requests"
+        self.STATUS_PENDING = "pending"
+        self.STATUS_NOTIFIED = "notified"
+        self.STATUS_ERROR = "error"
+        self.STATUS_CANCELLED = "cancelled" # Added if needed, can use ERROR
+
         self._initialize()
         # Start background tasks after the initial data load
         self.start_periodic_tasks(update_interval, check_interval)
@@ -230,22 +227,22 @@ class McMasterTimetableClient:
                 conn = sqlite3.connect(self.db_path, check_same_thread=False)
                 cursor = conn.cursor()
                 cursor.execute(f"""
-                    CREATE TABLE IF NOT EXISTS {WATCH_REQUESTS_TABLE} (
+                    CREATE TABLE IF NOT EXISTS {self.WATCH_REQUESTS_TABLE} (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         email TEXT NOT NULL,
                         term_id TEXT NOT NULL,
                         course_code TEXT NOT NULL,
                         section_key TEXT NOT NULL,
                         section_display TEXT NOT NULL,
-                        status TEXT NOT NULL DEFAULT '{STATUS_PENDING}',
+                        status TEXT NOT NULL DEFAULT '{self.STATUS_PENDING}',
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         last_checked_at TIMESTAMP,
                         notified_at TIMESTAMP,
                         UNIQUE(email, term_id, section_key)
                     )
                 """)
-                cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_status ON {WATCH_REQUESTS_TABLE}(status)")
-                cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_term_course ON {WATCH_REQUESTS_TABLE}(term_id, course_code)")
+                cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_status ON {self.WATCH_REQUESTS_TABLE}(status)")
+                cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_term_course ON {self.WATCH_REQUESTS_TABLE}(term_id, course_code)")
                 conn.commit()
                 conn.close()
                 log.info("Database initialized successfully.")
@@ -561,15 +558,18 @@ class McMasterTimetableClient:
 
     def add_course_watch_request(self, email: str, term_id: str, course_code: str, section_key: str) -> Tuple[bool, str]:
         """
-        Validates and adds a new request to the database to watch a specific course section.
+        Validates and adds/updates a request to watch a specific course section.
 
         Checks:
         1. Basic email format.
         2. If the term ID is valid.
         3. If the course code exists within that term.
         4. Fetches current details to verify the section key exists.
-        5. Ensures the section currently has 0 open seats (no need to watch otherwise).
-        6. Attempts to insert the request into the database, handling duplicates.
+        5. Ensures the section currently has 0 open seats.
+        6. Checks the database for existing requests:
+           - If a PENDING request exists: Inform user, do nothing.
+           - If a non-PENDING request exists (notified, error): Reactivate it.
+           - If no request exists: Insert a new PENDING request.
 
         Args:
             email: The user's email address for notifications.
@@ -580,20 +580,22 @@ class McMasterTimetableClient:
         Returns:
             A tuple: (bool success, str message) indicating the outcome.
         """
-        log.info(f"Attempting to add watch request: Email={email}, Term={term_id}, Course={course_code}, SectionKey={section_key}")
+        log.info(f"Attempting to add/update watch request: Email={email}, Term={term_id}, Course={course_code}, SectionKey={section_key}")
 
-        # Basic Validation
+        # 1. Basic Validation
         if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
             msg = "Invalid email format provided."
             log.warning(f"Watch request failed: {msg} (Email: {email})")
             return False, msg
 
+        # 2. Term Validation
         with self.terms_lock:
             if not any(term['id'] == term_id for term in self.terms):
                  msg = f"Invalid Term ID '{term_id}'. Check available terms."
                  log.warning(f"Watch request failed: {msg}")
                  return False, msg
 
+        # 3. Course Validation
         with self.courses_lock:
              term_courses = self.courses.get(term_id)
              if term_courses is None:
@@ -605,7 +607,7 @@ class McMasterTimetableClient:
                  log.warning(f"Watch request failed: {msg}")
                  return False, msg
 
-        # Fetch current details to validate section and seat count
+        # 4. Fetch current details to validate section and seat count
         log.info(f"Fetching details for validation: Term={term_id}, Course={course_code}")
         details = self.get_course_details(term_id, [course_code])
 
@@ -622,7 +624,6 @@ class McMasterTimetableClient:
             for section in sections:
                 if section['key'] == section_key:
                     target_section = section
-                    # Create a user-friendly display name (e.g., "LEC C01")
                     section_display_name = f"{block_type} {section['section']}"
                     break
             if target_section:
@@ -633,43 +634,86 @@ class McMasterTimetableClient:
             log.warning(f"Watch request failed: {msg}")
             return False, msg
 
-        # Check if the section is already open
+        # 5. Check if the section is already open
         if target_section['open_seats'] > 0:
             msg = f"Section {section_display_name} for {course_code} already has {target_section['open_seats']} open seats. No watch needed."
             log.warning(f"Watch request failed: {msg}")
             return False, msg
 
-        # Add the validated request to the database
-        log.info(f"Validation successful for {email} watching {course_code} {section_display_name} (Key: {section_key}). Adding to DB.")
+        # 6. Add or Update the request in the database
+        log.info(f"Validation successful for {email} watching {course_code} {section_display_name} (Key: {section_key}). Checking database...")
         with self.db_lock:
+            conn = None # Ensure conn is defined for finally block
             try:
                 conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                conn.row_factory = sqlite3.Row # Access columns by name
                 cursor = conn.cursor()
-                # Insert the request with 'pending' status
+
+                # Check for *any* existing request for this combination
                 cursor.execute(
-                    f"INSERT INTO {WATCH_REQUESTS_TABLE} (email, term_id, course_code, section_key, section_display, status) VALUES (?, ?, ?, ?, ?, ?)",
-                    (email, term_id, course_code, section_key, section_display_name, STATUS_PENDING)
+                    f"SELECT id, status FROM {self.WATCH_REQUESTS_TABLE} WHERE email = ? AND term_id = ? AND section_key = ?",
+                    (email, term_id, section_key)
                 )
-                conn.commit()
-                request_id = cursor.lastrowid
-                conn.close()
-                msg = f"Successfully added watch request (ID: {request_id}) for {course_code} {section_display_name}."
-                log.info(f"Watch request successful: {msg}")
-                return True, msg
-            except sqlite3.IntegrityError:
-                 # Catches violations of the UNIQUE constraint (email, term_id, section_key)
-                 msg = f"You already have a pending watch request for {course_code} {section_display_name}."
-                 log.warning(f"Watch request failed (duplicate): {msg}")
-                 conn.rollback() # Rollback the failed transaction
-                 conn.close()
-                 return False, msg
+                existing_request = cursor.fetchone()
+
+                if existing_request:
+                    existing_id = existing_request['id']
+                    existing_status = existing_request['status']
+
+                    if existing_status == self.STATUS_PENDING:
+                        # Already pending, do nothing
+                        msg = f"You already have an active pending watch request (ID: {existing_id}) for {course_code} {section_display_name}."
+                        log.warning(f"Watch request addition blocked (already pending): {msg}")
+                        conn.close()
+                        return False, msg
+                    else:
+                        # Found existing but non-pending (notified, error, etc.), reactivate it
+                        log.info(f"Found existing request (ID: {existing_id}, Status: {existing_status}). Reactivating to '{self.STATUS_PENDING}'.")
+                        cursor.execute(
+                            f"""UPDATE {self.WATCH_REQUESTS_TABLE}
+                               SET status = ?,
+                                   notified_at = NULL, -- Reset notification time
+                                   last_checked_at = NULL, -- Reset last check time (optional, check loop will update)
+                                   created_at = CURRENT_TIMESTAMP -- Optional: Update created_at to reflect reactivation time? Or keep original? Keeping original is often better.
+                               WHERE id = ?""",
+                            (self.STATUS_PENDING, existing_id)
+                            # If you want to keep the original created_at, remove that line from SET
+                        )
+                        conn.commit()
+                        msg = f"Successfully reactivated your previous watch request (ID: {existing_id}) for {course_code} {section_display_name}."
+                        log.info(f"Watch request reactivated: {msg}")
+                        conn.close()
+                        return True, msg
+                else:
+                    # No existing request found, insert a new one as pending
+                    log.info(f"No existing request found. Inserting new pending request.")
+                    cursor.execute(
+                        f"INSERT INTO {self.WATCH_REQUESTS_TABLE} (email, term_id, course_code, section_key, section_display, status) VALUES (?, ?, ?, ?, ?, ?)",
+                        (email, term_id, course_code, section_key, section_display_name, self.STATUS_PENDING)
+                    )
+                    conn.commit()
+                    request_id = cursor.lastrowid
+                    msg = f"Successfully added new watch request (ID: {request_id}) for {course_code} {section_display_name}."
+                    log.info(f"New watch request added: {msg}")
+                    conn.close()
+                    return True, msg
+
             except sqlite3.Error as e:
-                msg = f"Database error while adding watch request: {e}"
-                log.error(f"Watch request failed: {msg}")
-                if 'conn' in locals() and conn:
-                     conn.rollback()
-                     conn.close()
+                # Catch potential errors during DB operations (query, update, insert)
+                msg = f"Database error during watch request processing: {e}"
+                log.error(f"Watch request failed: {msg}", exc_info=True) # Log traceback for DB errors
+                if conn:
+                    try:
+                        conn.rollback() # Rollback any potential partial changes
+                    except sqlite3.Error as rb_err:
+                         log.error(f"Error during rollback: {rb_err}")
                 return False, msg
+            finally:
+                if conn:
+                    try:
+                        conn.close() # Ensure connection is closed
+                    except sqlite3.Error as close_err:
+                        log.error(f"Error closing database connection: {close_err}")
 
     def _check_watched_courses(self):
         """
@@ -694,8 +738,8 @@ class McMasterTimetableClient:
                 conn.row_factory = sqlite3.Row # Access columns by name
                 cursor = conn.cursor()
                 cursor.execute(
-                    f"SELECT id, email, term_id, course_code, section_key, section_display FROM {WATCH_REQUESTS_TABLE} WHERE status = ?",
-                    (STATUS_PENDING,)
+                    f"SELECT id, email, term_id, course_code, section_key, section_display FROM {self.WATCH_REQUESTS_TABLE} WHERE status = ?",
+                    (self.STATUS_PENDING,)
                 )
                 pending_requests = [dict(row) for row in cursor.fetchall()]
                 conn.close()
@@ -800,21 +844,21 @@ class McMasterTimetableClient:
                     # Update status for successfully notified requests
                     if notified_ids:
                         unique_notified_ids = list(set(notified_ids))
-                        log.info(f"Updating status to '{STATUS_NOTIFIED}' for IDs: {unique_notified_ids}")
+                        log.info(f"Updating status to '{self.STATUS_NOTIFIED}' for IDs: {unique_notified_ids}")
                         placeholders = ','.join('?' * len(unique_notified_ids))
                         cursor.execute(
-                            f"UPDATE {WATCH_REQUESTS_TABLE} SET status = ?, notified_at = ?, last_checked_at = ? WHERE id IN ({placeholders})",
-                            (STATUS_NOTIFIED, now_iso, now_iso, *unique_notified_ids)
+                            f"UPDATE {self.WATCH_REQUESTS_TABLE} SET status = ?, notified_at = ?, last_checked_at = ? WHERE id IN ({placeholders})",
+                            (self.STATUS_NOTIFIED, now_iso, now_iso, *unique_notified_ids)
                         )
 
                     # Update status for requests where the section disappeared
                     if error_ids:
                          unique_error_ids = list(set(error_ids))
-                         log.info(f"Updating status to '{STATUS_ERROR}' for IDs: {unique_error_ids}")
+                         log.info(f"Updating status to '{self.STATUS_ERROR}' for IDs: {unique_error_ids}")
                          placeholders = ','.join('?' * len(unique_error_ids))
                          cursor.execute(
-                             f"UPDATE {WATCH_REQUESTS_TABLE} SET status = ?, last_checked_at = ? WHERE id IN ({placeholders})",
-                             (STATUS_ERROR, now_iso, *unique_error_ids) # Or STATUS_CANCELLED
+                             f"UPDATE {self.WATCH_REQUESTS_TABLE} SET status = ?, last_checked_at = ? WHERE id IN ({placeholders})",
+                             (self.STATUS_ERROR, now_iso, *unique_error_ids) # Or self.STATUS_CANCELLED
                          )
 
                     # Update 'last_checked_at' for pending requests that were checked but found no open seats
@@ -825,8 +869,8 @@ class McMasterTimetableClient:
                          log.debug(f"Updating last_checked_at for {updated_pending} still-pending requests.")
                          placeholders = ','.join('?' * len(remaining_checked_ids))
                          cursor.execute(
-                             f"UPDATE {WATCH_REQUESTS_TABLE} SET last_checked_at = ? WHERE id IN ({placeholders}) AND status = ?", # Only update pending ones
-                             (now_iso, *remaining_checked_ids, STATUS_PENDING)
+                             f"UPDATE {self.WATCH_REQUESTS_TABLE} SET last_checked_at = ? WHERE id IN ({placeholders}) AND status = ?", # Only update pending ones
+                             (now_iso, *remaining_checked_ids, self.STATUS_PENDING)
                          )
 
                     conn.commit()

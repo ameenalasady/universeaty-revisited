@@ -535,7 +535,8 @@ def handle_not_found(error):
     response = getattr(error, 'response', None)
     if response and response.is_json: return response
     description = getattr(error, 'description', 'The requested resource was not found.')
-    log.warning(f"Returning 404 Not Found for {request.path}: {description}")
+    remote_addr = request.remote_addr if request else 'Unknown IP'
+    log.warning(f"Returning 404 Not Found for {request.path} from {remote_addr}: {description}")
     return jsonify(error=description), 404
 
 @app.errorhandler(405)
