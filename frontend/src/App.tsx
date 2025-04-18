@@ -674,7 +674,7 @@ function App() {
         {/* Main content area */}
         <main className="flex-grow">
           {/* Term and Course Selection Card */}
-          <Card className="mb-6 mt-12">
+          <Card className="my-6">
             <CardHeader>
               <CardTitle>Course Selection</CardTitle>
               <CardDescription>
@@ -844,7 +844,7 @@ function App() {
         </main>
 
         {/* Footer */}
-        <footer className="mt-12 py-6 flex items-center justify-center gap-6 text-sm text-muted-foreground border-t">
+        <footer className="mt-6 py-6 flex items-center justify-center gap-6 text-sm text-muted-foreground border-t">
           <Button variant="link" asChild className="text-muted-foreground">
             <a
               href="https://ko-fi.com/ameenalasady"
