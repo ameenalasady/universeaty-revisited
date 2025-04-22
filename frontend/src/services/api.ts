@@ -108,7 +108,7 @@ export const getTerms = async (): Promise<Term[]> => {
 
 /**
  * === API Function: Get Courses ===
- * Fetches the list of course codes for a specific term from the `/courses/{termId}` endpoint.
+ * Fetches the list of course codes for a specific term from the `/terms/{termId}/courses` endpoint.
  * Handles a specific case where the backend might return 404 if the course list
  * for a term isn't ready yet, returning an empty array instead of throwing an error.
  * Uses the generic `handleResponse` for other successful or error responses.
@@ -117,11 +117,19 @@ export const getTerms = async (): Promise<Term[]> => {
  * @returns {Promise<string[]>} A promise resolving to an array of course code strings.
  */
 export const getCourses = async (termId: string): Promise<string[]> => {
-    const response = await fetch(`${API_BASE_URL}/courses/${termId}`);
+    // fetch URL
+    const response = await fetch(`${API_BASE_URL}/terms/${termId}/courses`);
     // Special handling for 404, which might mean data isn't ready yet
     if (response.status === 404) {
         console.warn(`Course list for term ${termId} not found or not ready.`);
         return []; // Return empty array, let UI decide how to handle
+    }
+     // Special handling for 503, which *definitely* means data isn't ready yet
+     if (response.status === 503) {
+        console.warn(`Course list for term ${termId} currently unavailable (503).`);
+        // Optionally, you could throw an error here or return a specific signal
+        // For now, returning empty array similar to 404 might be acceptable UI-wise
+        return [];
     }
     // For other statuses (200 OK or other errors), use handleResponse
     return handleResponse<string[]>(response);
@@ -130,7 +138,7 @@ export const getCourses = async (termId: string): Promise<string[]> => {
 /**
  * === API Function: Get Course Details ===
  * Fetches detailed section information for a specific course within a given term
- * from the `/course_details/{termId}/{courseCode}` endpoint.
+ * from the `/terms/{termId}/courses/{courseCode}` endpoint. // Updated endpoint path
  * URL-encodes the `courseCode` to handle potential spaces or special characters.
  * Handles a specific case where 404 means the course/details don't exist, returning
  * an empty object instead of throwing an error.
@@ -142,11 +150,18 @@ export const getCourses = async (termId: string): Promise<string[]> => {
  */
 export const getCourseDetails = async (termId: string, courseCode: string): Promise<CourseDetails> => {
     const encodedCourseCode = encodeURIComponent(courseCode); // Ensure code is safe for URL
-    const response = await fetch(`${API_BASE_URL}/course_details/${termId}/${encodedCourseCode}`);
-     // Special handling for 404 (course/details not found)
+    // Updated fetch URL to match RESTful structure
+    const response = await fetch(`${API_BASE_URL}/terms/${termId}/courses/${encodedCourseCode}`);
+     // Special handling for 404 (term/course/details not found)
      if (response.status === 404) {
-        console.warn(`Details for course ${courseCode} in term ${termId} not found.`);
+        console.warn(`Details for course ${courseCode} in term ${termId} not found (404).`);
         return {}; // Return empty object signifies not found
+    }
+    // Special handling for 503 (service unavailable, likely data not ready yet)
+     if (response.status === 503) {
+        console.warn(`Details for course ${courseCode} in term ${termId} currently unavailable (503).`);
+        // Return empty object signifies unavailable state
+        return {};
     }
     // For other statuses, use handleResponse
     return handleResponse<CourseDetails>(response);
@@ -180,7 +195,7 @@ export const addWatchRequest = async (payload: WatchRequestPayload): Promise<Wat
              // Expecting { message: "..." } from backend on success
              return await response.json() as WatchResponse;
         } else {
-            // Handle application-level errors returned by the backend (e.g., 400, 409, 500)
+            // Handle application-level errors returned by the backend (e.g., 400, 409, 500, 503)
             // Try to parse the error message from the JSON response body
             const errorData = await response.json().catch(() => ({
                 error: `Request failed with status ${response.status}` // Fallback if body isn't JSON

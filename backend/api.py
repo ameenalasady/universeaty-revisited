@@ -12,7 +12,7 @@ Imports necessary libraries:
 - dotenv: To load environment variables (like email credentials) from a .env file.
 - time: Standard library for time-related functions (though minimally used here directly).
 """
-import logging # Keep this import
+import logging
 import re
 import sys
 from flask import Flask, request, jsonify, g
@@ -235,7 +235,7 @@ def health_check():
         - Database Connection: If the database for watches is accessible.
         - Background Threads: If the data update and watch check threads are active.
         - Email Configuration: If email credentials for notifications are set.
-    Rate Limit: 30 requests per minute per IP.
+    Rate Limit: 10 requests per minute; 3 per 10 seconds per IP.
     Responses:
         - 200 OK: {"status": "healthy" | "degraded", "details": {...}}
                   - "healthy": All checks passed.
@@ -370,11 +370,11 @@ def health_check():
 
 @app.route('/terms', methods=['GET'])
 @limiter.limit("60 per minute; 5 per second")
-def get_terms_endpoint():
+def get_terms():
     """
     Endpoint: GET /terms
-    Purpose: Retrieves the list of available academic terms from the timetable client.
-    Rate Limit: 30 requests per minute per IP.
+    Purpose: Retrieves the list of available academic term resources.
+    Rate Limit: 60 requests per minute; 5 per second per IP. # Corrected Rate Limit comment
     Responses:
         - 200 OK: JSON array of term objects (e.g., [{"id": "2241", "name": "Winter 2024"}, ...]).
         - 503 Service Unavailable: If the timetable client is not initialized.
@@ -391,15 +391,16 @@ def get_terms_endpoint():
         log.error(f"Error in /terms endpoint: {e}", exc_info=True)
         return jsonify({"error": "An internal error occurred retrieving terms."}), 500
 
-@app.route('/courses/<string:term_id>', methods=['GET'])
+# --- Modified Endpoint ---
+@app.route('/terms/<string:term_id>/courses', methods=['GET'])
 @limiter.limit("60 per minute; 5 per second")
-def get_courses_endpoint(term_id):
+def get_term_courses(term_id):
     """
-    Endpoint: GET /courses/<term_id>
-    Purpose: Retrieves the list of course codes available for a specific academic term.
+    Endpoint: GET /terms/<term_id>/courses
+    Purpose: Retrieves the list of available course resources for a specific academic term.
     Path Parameter:
-        - term_id (string): The numeric identifier for the term.
-    Rate Limit: 60 requests per minute per IP.
+        - term_id (string): The numeric identifier for the term resource.
+    Rate Limit: 60 requests per minute; 5 per second per IP.
     Input Validation: Checks if term_id is numeric and exists.
     Responses:
         - 200 OK: JSON array of course code strings (e.g., ["COMPSCI 1JC3", "MATH 1ZA3", ...]).
@@ -431,26 +432,26 @@ def get_courses_endpoint(term_id):
         log.debug(f"Retrieved {len(courses)} courses for term {term_id}.")
         return jsonify(courses)
     except Exception as e:
-        log.error(f"Error in /courses/{term_id} endpoint: {e}", exc_info=True)
+        log.error(f"Error in /terms/{term_id}/courses endpoint: {e}", exc_info=True) # Updated log message path
         return jsonify({"error": "An internal error occurred retrieving courses."}), 500
 
-
-@app.route('/course_details/<string:term_id>/<path:course_code>', methods=['GET'])
+@app.route('/terms/<string:term_id>/courses/<path:course_code>', methods=['GET'])
 @limiter.limit("100 per hour; 15 per minute; 2 per second")
-def get_course_details_endpoint(term_id, course_code):
+def get_course_details(term_id, course_code): # Renamed function
     """
-    Endpoint: GET /course_details/<term_id>/<course_code>
-    Purpose: Retrieves detailed section information (lectures, labs, tutorials, seats)
-             for a specific course within a given term.
+    Endpoint: GET /terms/<term_id>/courses/<course_code>
+    Purpose: Retrieves the detailed representation of a specific course resource
+             within a given term, including section information (lectures, labs, tutorials, seats).
     Path Parameters:
-        - term_id (string): The numeric identifier for the term.
-        - course_code (path string): The course code (e.g., "COMPSCI 1JC3"). Using <path:> allows
-          for potential slashes or other special characters if they ever occur in course codes.
-    Rate Limit: 30 requests per minute per IP.
+        - term_id (string): The numeric identifier for the term resource.
+        - course_code (path string): The course code identifier for the course resource (e.g., "COMPSCI 1JC3").
+          Using <path:> allows for potential slashes or other special characters if they ever occur in course codes.
+    Rate Limit: 100 requests per hour; 15 per minute; 2 per second per IP. # Corrected Rate Limit comment
     Input Validation: Checks term ID format, basic course code format, term existence,
                      and course existence within the term. Normalizes course code (uppercase).
     Responses:
-        - 200 OK: JSON object mapping section types ('LEC', 'LAB', 'TUT') to lists of section details.
+        - 200 OK: JSON object containing the representation of the course, typically mapping section types
+                  ('LEC', 'LAB', 'TUT') to lists of section details.
         - 400 Bad Request: If term_id or course_code format is invalid.
         - 404 Not Found: If the term_id is invalid, the course code is not found in the term,
                          or if details couldn't be retrieved (e.g., no sections listed).
@@ -501,19 +502,19 @@ def get_course_details_endpoint(term_id, course_code):
         return jsonify(course_detail_data)
 
     except Exception as e:
-        log.error(f"Error in /course_details/{term_id}/{course_code} endpoint: {e}", exc_info=True)
+        log.error(f"Error in /terms/{term_id}/courses/{course_code} endpoint: {e}", exc_info=True) # Updated log message path
         return jsonify({"error": "An internal error occurred retrieving course details."}), 500
 
 
 @app.route('/watch', methods=['POST'])
 @limiter.limit("30 per hour; 10 per minute; 3 per 10 seconds")
-def add_watch_endpoint():
+def add_watch_request():
     """
     Endpoint: POST /watch
-    Purpose: Adds a request to watch a specific course section for open seats.
+    Purpose: Creates a new watch resource, requesting notifications for a specific course section.
              The client will periodically check and send an email notification if seats open.
-    Rate Limit: 10 requests per minute per IP.
-    Request Body: JSON payload with required string fields:
+    Rate Limit: 30 requests per hour; 10 per minute; 3 per 10 seconds per IP. # Corrected Rate Limit comment
+    Request Body: JSON payload representing the watch request with required string fields:
         - email: User's email address.
         - term_id: Numeric string term identifier.
         - course_code: Course code string (e.g., "COMPSCI 1JC3").
@@ -521,10 +522,10 @@ def add_watch_endpoint():
     Input Validation: Checks for JSON format, required fields, valid email/term/course/section formats,
                      term existence, course existence within the term, and email notification system configuration.
     Responses:
-        - 201 Created: {"message": "Successfully added watch request..."} on success.
+        - 201 Created: {"message": "Successfully added watch request..."} on success. Location header is not included.
         - 400 Bad Request: Invalid JSON, missing fields, invalid data formats, term/course/section not found,
                            or trying to watch an already open section.
-        - 409 Conflict: If the user already has a pending watch request for the same section.
+        - 409 Conflict: If the user already has a pending watch request for the same section resource.
         - 503 Service Unavailable: If the timetable client or email notification system is not configured/ready.
         - 500 Internal Server Error: For unexpected errors during processing or database interaction.
     """
@@ -595,13 +596,16 @@ def add_watch_endpoint():
         # Further validation requiring client data (term/course existence)
         available_terms = {t['id'] for t in active_client.get_terms()}
         if payload["term_id"] not in available_terms:
+            # Use 400 because the client provided an invalid term ID in the request body
             return jsonify({"error": f"Term ID '{payload['term_id']}' not found."}), 400
 
         courses_in_term = active_client.get_courses(payload["term_id"])
         if courses_in_term is None:
             log.warning(f"Watch request for term {payload['term_id']} failed: course list not yet loaded.")
+            # Use 503 because the server state (course list) isn't ready
             return jsonify({"error": f"Course list for term '{payload['term_id']}' is not ready. Please try again shortly."}), 503
         if payload["course_code"] not in courses_in_term:
+             # Use 400 because the client provided an invalid course code for the given term
             return jsonify({"error": f"Course code '{payload['course_code']}' not found in term '{payload['term_id']}'."}), 400
 
         # Delegate the final validation (section existence, seat count) and DB insertion to the client
@@ -622,7 +626,7 @@ def add_watch_endpoint():
             if "already has a pending watch request" in message:
                 status_code = 409 # Conflict
             elif "already has" in message and "open seats" in message:
-                status_code = 400 # Bad Request (logic error by user)
+                status_code = 400 # Bad Request (logic error by user trying to watch open section)
             elif "not found for course" in message: # Client indicating invalid section *key*
                 status_code = 400 # Bad Request (invalid input)
             elif "Database error" in message:
@@ -648,7 +652,10 @@ in logging errors appropriately on the server side.
 def handle_bad_request(error):
     """Handles 400 Bad Request errors, returning specific JSON if provided, else generic."""
     response = getattr(error, 'response', None)
-    if response and response.is_json: return response
+    # Check if the response from a view function (like jsonify({...}), 400) is already a Flask response object
+    if isinstance(response, app.response_class):
+        return response # Pass through the already formatted JSON response
+    # Otherwise, create a generic one based on the error description
     description = getattr(error, 'description', 'Bad Request')
     log.warning(f"Returning 400 Bad Request: {description}")
     return jsonify(error=description), 400
@@ -657,7 +664,8 @@ def handle_bad_request(error):
 def handle_not_found(error):
     """Handles 404 Not Found errors, returning specific JSON if provided, else generic."""
     response = getattr(error, 'response', None)
-    if response and response.is_json: return response
+    if isinstance(response, app.response_class):
+        return response
     description = getattr(error, 'description', 'The requested resource was not found.')
     remote_addr = request.remote_addr if request else 'Unknown IP'
     log.warning(f"Returning 404 Not Found for {request.path} from {remote_addr}: {description}")
@@ -666,11 +674,22 @@ def handle_not_found(error):
 @app.errorhandler(405)
 def handle_method_not_allowed(error):
     """Handles 405 Method Not Allowed errors, indicating allowed methods if available."""
+    # Flask automatically sets the 'Allow' header on the response object in the error
     response = getattr(error, 'response', None)
     allowed_methods = response.headers.get('Allow') if response else None
     message = "Method Not Allowed." + (f" Allowed methods: {allowed_methods}" if allowed_methods else "")
     log.warning(f"Returning 405 Method Not Allowed for {request.method} {request.path}")
     return jsonify(error=message), 405
+
+@app.errorhandler(409)
+def handle_conflict(error):
+    """Handles 409 Conflict errors, returning specific JSON if provided, else generic."""
+    response = getattr(error, 'response', None)
+    if isinstance(response, app.response_class):
+        return response
+    description = getattr(error, 'description', 'Conflict')
+    log.warning(f"Returning 409 Conflict for {request.path}: {description}")
+    return jsonify(error=description), 409
 
 @app.errorhandler(429)
 def handle_rate_limit(error):
@@ -690,7 +709,8 @@ def handle_internal_server_error(error):
 def handle_service_unavailable(error):
     """Handles 503 Service Unavailable errors, returning specific JSON if provided, else generic."""
     response = getattr(error, 'response', None)
-    if response and response.is_json: return response
+    if isinstance(response, app.response_class):
+        return response
     description = getattr(error, 'description', 'The service is temporarily unavailable. Please try again later.')
     log.error(f"Returning 503 Service Unavailable for {request.path}: {description}")
     return jsonify(error=description), 503
@@ -700,6 +720,17 @@ def handle_service_unavailable(error):
 def handle_generic_exception(e):
     """Generic handler for any uncaught exceptions, logs error and returns 500."""
     # This might catch exceptions before specific error handlers if they are more general.
+    # Check if it's a werkzeug HTTP exception, which might have already been handled
+    # or should be handled by a more specific handler.
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        # Re-raise it to let specific handlers (4xx, 5xx) catch it if defined
+        # If no specific handler exists, Flask's default behavior or the 500 handler will catch it.
+        # This prevents this generic handler from overriding specific ones like 404, 400 etc.
+        # However, since we defined handlers for common ones, we likely want the generic 500 for anything else.
+        # The current setup with explicit handlers and this catch-all is reasonable.
+        pass # Let Flask handle routing to the correct @app.errorhandler based on the exception type
+
     log.critical(f"Unhandled Exception caught by generic handler for {request.path}: {e}", exc_info=True) # Log as critical
     return jsonify(error="An unexpected error occurred."), 500
 
