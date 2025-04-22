@@ -159,6 +159,9 @@ class McMasterTimetableClient:
         self.STATUS_ERROR = "error"
         self.STATUS_CANCELLED = "cancelled" # Added if needed, can use ERROR
 
+        self.update_thread: Optional[threading.Thread] = None
+        self.check_thread: Optional[threading.Thread] = None
+
         self._initialize()
         # Start background tasks after the initial data load
         self.start_periodic_tasks(update_interval, check_interval)
@@ -249,6 +252,36 @@ class McMasterTimetableClient:
             except sqlite3.Error as e:
                 log.error(f"Database initialization error: {e}")
                 raise # Critical failure, re-raise to stop application
+
+
+    def check_db_connection(self) -> bool:
+        """
+        Checks if a connection to the database can be established and a simple query run.
+        Uses a short timeout to avoid blocking excessively.
+        """
+        with self.db_lock: # Ensure thread safety when accessing db path etc.
+            conn = None
+            start_time = time.time()
+            try:
+                # Connect with a timeout (e.g., 5 seconds)
+                conn = sqlite3.connect(self.db_path, timeout=5, check_same_thread=False)
+                cursor = conn.cursor()
+                cursor.execute("SELECT 1") # Simple, fast query to test connectivity
+                cursor.fetchone()
+                duration = time.time() - start_time
+                log.debug(f"Database connection check successful (took {duration:.3f}s).")
+                return True
+            except sqlite3.Error as e:
+                duration = time.time() - start_time
+                log.error(f"Database connection check failed (after {duration:.3f}s): {e}")
+                return False
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except sqlite3.Error as close_err:
+                        # Log error but don't change the success/failure outcome
+                        log.error(f"Error closing DB connection during health check: {close_err}")
 
     def _fetch_and_parse_terms(self):
         """
@@ -903,23 +936,23 @@ class McMasterTimetableClient:
         check_interval = max(60, check_interval)     # Minimum 1 minute
 
         # Thread for updating term/course lists
-        update_thread = threading.Thread(
+        self.update_thread = threading.Thread(
             target=self._term_course_update_loop,
             args=(update_interval,),
             daemon=True,
             name="TermCourseUpdater"
         )
-        update_thread.start()
+        self.update_thread.start()
         log.info(f"Started background thread for term/course list updates (Interval: {update_interval}s).")
 
         # Thread for checking watched courses
-        check_thread = threading.Thread(
+        self.check_thread = threading.Thread(
             target=self._watch_check_loop,
             args=(check_interval,),
             daemon=True,
             name="WatchChecker"
         )
-        check_thread.start()
+        self.check_thread.start()
         log.info(f"Started background thread for checking watched courses (Interval: {check_interval}s).")
 
 

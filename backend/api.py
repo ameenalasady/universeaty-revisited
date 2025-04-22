@@ -22,6 +22,8 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 import time
 from werkzeug.middleware.proxy_fix import ProxyFix
+from datetime import datetime, timezone
+import threading
 
 # --- Centralized Logging Setup ---
 """
@@ -44,7 +46,8 @@ try:
         DATABASE_PATH,
         DEFAULT_CHECK_INTERVAL,
         DEFAULT_UPDATE_INTERVAL,
-        EMAIL_PASSWORD, # Used for crucial functionality check
+        EMAIL_PASSWORD,
+        EMAIL_SENDER
     )
 except ImportError:
     # Use print here as logging might not be configured if import fails early
@@ -221,27 +224,148 @@ def get_client_or_abort():
 # --- API Endpoints ---
 
 @app.route('/health', methods=['GET'])
-@limiter.limit("30 per minute") # Higher limit for frequent monitoring checks
+@limiter.limit("10 per minute; 3 per 10 seconds")
 def health_check():
     """
     Endpoint: GET /health
-    Purpose: Provides a basic health status of the API.
-    Checks if the core `McMasterTimetableClient` component initialized successfully.
-    Rate Limit: 120 requests per minute per IP.
+    Purpose: Provides a detailed health status of the API and its components.
+    Checks:
+        - Client Initialization: If the core Timetable Client is running.
+        - Term Data: If academic terms have been loaded.
+        - Database Connection: If the database for watches is accessible.
+        - Background Threads: If the data update and watch check threads are active.
+        - Email Configuration: If email credentials for notifications are set.
+    Rate Limit: 30 requests per minute per IP.
     Responses:
-        - 200 OK: {"status": "healthy"} if the client is initialized.
-        - 503 Service Unavailable: {"error": ...} if the client failed to initialize.
+        - 200 OK: {"status": "healthy" | "degraded", "details": {...}}
+                  - "healthy": All checks passed.
+                  - "degraded": Core functions okay, but some non-critical checks failed
+                                (e.g., terms not loaded yet, email config missing, one thread down).
+        - 503 Service Unavailable: {"status": "unhealthy", "details": {...}}
+                                   Critical failure (client not initialized, database inaccessible).
     """
-    active_client_status = get_client_or_abort()
-    # Check if get_client_or_abort returned the error response tuple
-    if isinstance(active_client_status, tuple):
-        status_code = active_client_status[1]
-        log.warning(f"Health check endpoint: Reporting unhealthy status (client not initialized). Status Code: {status_code}")
-        return active_client_status # Return the error tuple directly
+    log.info("Health check requested.")
+    start_time = time.time()
 
-    # If we reach here, the client is okay. More specific checks could be added.
-    log.debug("Health check endpoint: Reporting healthy status.")
-    return jsonify({"status": "healthy"}), 200
+    details = {
+        "client_initialized": None,
+        "terms_loaded": None,
+        "database_connection": None,
+        "background_threads": {
+            "updater_alive": None,
+            "checker_alive": None
+        },
+        "email_configuration": None,
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec='seconds')
+    }
+    overall_status = "healthy" # Start optimistic
+    status_code = 200
+
+    # --- Check 1: Client Initialization ---
+    active_client_or_error = get_client_or_abort()
+    if isinstance(active_client_or_error, tuple):
+        # get_client_or_abort returned an error response (jsonify({...}), 503)
+        details["client_initialized"] = False
+        details["database_connection"] = "skipped" # Cannot check DB without client
+        details["terms_loaded"] = "skipped"
+        details["background_threads"]["updater_alive"] = "skipped"
+        details["background_threads"]["checker_alive"] = "skipped"
+        details["email_configuration"] = "checked" if EMAIL_PASSWORD and EMAIL_SENDER else "missing_credentials" # Can still check this
+        overall_status = "unhealthy"
+        status_code = 503
+        log.warning("Health check: Client not initialized. Reporting unhealthy.")
+        duration = (time.time() - start_time) * 1000
+        log.info(f"Health check completed in {duration:.2f}ms. Status: {overall_status}")
+        # Use the error response directly from get_client_or_abort if you want its specific message
+        # return active_client_or_error
+        # Or return our structured response:
+        return jsonify({"status": overall_status, "details": details}), status_code
+    else:
+        # Client is initialized
+        active_client = active_client_or_error
+        details["client_initialized"] = True
+        log.debug("Health check: Client initialized.")
+
+    # --- Check 2: Term Data Availability ---
+    try:
+        terms = active_client.get_terms() # This returns a copy
+        if terms and isinstance(terms, list) and len(terms) > 0:
+            details["terms_loaded"] = True
+            log.debug(f"Health check: Terms loaded ({len(terms)} found).")
+        else:
+            details["terms_loaded"] = False
+            overall_status = "degraded" # Not critical, but not fully healthy yet
+            log.warning("Health check: Terms list is empty or not loaded. Reporting degraded.")
+    except Exception as e:
+        details["terms_loaded"] = f"error: {type(e).__name__}"
+        overall_status = "degraded"
+        log.error(f"Health check: Error checking terms: {e}", exc_info=False) # Keep log concise
+
+    # --- Check 3: Database Connectivity ---
+    try:
+        db_ok = active_client.check_db_connection()
+        if db_ok:
+            details["database_connection"] = "ok"
+            log.debug("Health check: Database connection successful.")
+        else:
+            details["database_connection"] = "error"
+            overall_status = "unhealthy" # Database is critical for watches
+            status_code = 503
+            log.error("Health check: Database connection failed. Reporting unhealthy.")
+    except AttributeError:
+        details["database_connection"] = "check_method_missing" # Should not happen if client code is updated
+        overall_status = "unhealthy"
+        status_code = 503
+        log.error("Health check: Client object missing 'check_db_connection' method.")
+    except Exception as e:
+        details["database_connection"] = f"error: {type(e).__name__}"
+        overall_status = "unhealthy" # Assume DB error is critical
+        status_code = 503
+        log.error(f"Health check: Unexpected error checking database connection: {e}", exc_info=False)
+
+    # --- Check 4: Background Thread Status ---
+    try:
+        updater_thread = getattr(active_client, 'update_thread', None)
+        checker_thread = getattr(active_client, 'check_thread', None)
+
+        updater_alive = isinstance(updater_thread, threading.Thread) and updater_thread.is_alive()
+        checker_alive = isinstance(checker_thread, threading.Thread) and checker_thread.is_alive()
+
+        details["background_threads"]["updater_alive"] = updater_alive
+        details["background_threads"]["checker_alive"] = checker_alive
+
+        if not updater_alive:
+            if overall_status == "healthy": overall_status = "degraded"
+            log.warning("Health check: Term/Course Updater thread is not alive.")
+        else:
+             log.debug("Health check: Term/Course Updater thread is alive.")
+
+        if not checker_alive:
+            if overall_status == "healthy": overall_status = "degraded"
+            log.warning("Health check: Watch Checker thread is not alive.")
+        else:
+            log.debug("Health check: Watch Checker thread is alive.")
+
+    except Exception as e:
+        details["background_threads"]["updater_alive"] = f"error: {type(e).__name__}"
+        details["background_threads"]["checker_alive"] = f"error: {type(e).__name__}"
+        if overall_status == "healthy": overall_status = "degraded" # Consider thread check failure as degraded
+        log.error(f"Health check: Error checking background threads: {e}", exc_info=False)
+
+    # --- Check 5: Email Configuration ---
+    if EMAIL_PASSWORD and EMAIL_SENDER:
+        details["email_configuration"] = "ok"
+        log.debug("Health check: Email configuration appears ok.")
+    else:
+        details["email_configuration"] = "missing_credentials"
+        if overall_status == "healthy": overall_status = "degraded" # Email needed for full function
+        log.warning("Health check: Email credentials (PASSWORD/EMAIL_SENDER) missing. Reporting degraded.")
+
+
+    # --- Final Response ---
+    duration = (time.time() - start_time) * 1000
+    log.info(f"Health check completed in {duration:.2f}ms. Final Status: {overall_status} (HTTP {status_code})")
+    return jsonify({"status": overall_status, "details": details}), status_code
 
 
 @app.route('/terms', methods=['GET'])
