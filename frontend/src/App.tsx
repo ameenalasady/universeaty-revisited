@@ -572,7 +572,7 @@ function App() {
                               variant={
                                 section.open_seats <= 0
                                   ? "destructive" // Red for full
-                                  : "default"     // Default (often grey/blue) - customized below for green
+                                  : "default" // Default (often grey/blue) - customized below for green
                               }
                               // Apply custom green styling if open seats > 0
                               className={cn(
@@ -658,19 +658,23 @@ function App() {
         <Toaster richColors position="top-right" theme="system" closeButton />
 
         {/* Header */}
-        <header className="text-center mb-8">
-          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">
-            universeaty.ca
-          </h1>
-          <p className="text-muted-foreground mt-2 max-w-xl mx-auto">
-            Get notified when a seat opens up!
-          </p>
+        <header className="pt-3 pb-6 text-center">
+          <div className="">
+            <h1 className=" text-3xl sm:text-4xl font-bold tracking-tight">
+              universeaty.ca
+            </h1>
+            <p className="text-muted-foreground mt-2 max-w-xl mx-auto">
+              Get notified when a seat opens up!
+            </p>
+          </div>
         </header>
+
+        <Separator />
 
         {/* Main content area */}
         <main className="flex-grow">
           {/* Term and Course Selection Card */}
-          <Card className="mb-6">
+          <Card className="my-6">
             <CardHeader>
               <CardTitle>Course Selection</CardTitle>
               <CardDescription>
@@ -733,7 +737,8 @@ function App() {
                       role="combobox"
                       aria-expanded={isCoursePopoverOpen}
                       className="w-full justify-between"
-                      disabled={ // Disable if no term, loading, or no courses
+                      disabled={
+                        // Disable if no term, loading, or no courses
                         !selectedTerm ||
                         isLoadingTerms ||
                         isLoadingCourses ||
@@ -769,7 +774,9 @@ function App() {
                       minWidth: "max(var(--radix-popover-trigger-width))",
                     }}
                   >
-                    <Command shouldFilter={false}> {/* Disable default filtering */}
+                    <Command shouldFilter={false}>
+                      {" "}
+                      {/* Disable default filtering */}
                       {/* Search Input */}
                       <div className="flex items-center border-b px-3">
                         <CommandInput
@@ -837,7 +844,7 @@ function App() {
         </main>
 
         {/* Footer */}
-        <footer className="mt-12 py-6 flex items-center justify-center gap-6 text-sm text-muted-foreground border-t">
+        <footer className="mt-6 py-6 flex items-center justify-center gap-6 text-sm text-muted-foreground border-t">
           <Button variant="link" asChild className="text-muted-foreground">
             <a
               href="https://ko-fi.com/ameenalasady"
@@ -905,7 +912,8 @@ function App() {
               </DialogClose>
               <Button
                 onClick={handleWatchSubmit}
-                disabled={ // Disable if submitting, email empty, or invalid format
+                disabled={
+                  // Disable if submitting, email empty, or invalid format
                   isSubmittingWatch ||
                   !watchEmail.trim() ||
                   !/\S+@\S+\.\S+/.test(watchEmail)
@@ -942,7 +950,8 @@ const CourseDetailsSkeleton: React.FC = () => (
     </CardHeader>
     <CardContent className="space-y-6">
       <div>
-        <Skeleton className="h-6 w-1/4 mb-3" /> {/* Skeleton for Section Type Heading */}
+        <Skeleton className="h-6 w-1/4 mb-3" />{" "}
+        {/* Skeleton for Section Type Heading */}
         <Table>
           <TableHeader>
             <TableRow>
@@ -972,10 +981,12 @@ const CourseDetailsSkeleton: React.FC = () => (
                   <Skeleton className="h-5 w-full" />
                 </TableCell>
                 <TableCell className="text-center">
-                  <Skeleton className="h-6 w-16 mx-auto rounded-full" /> {/* Badge Skeleton */}
+                  <Skeleton className="h-6 w-16 mx-auto rounded-full" />{" "}
+                  {/* Badge Skeleton */}
                 </TableCell>
                 <TableCell className="text-right">
-                  <Skeleton className="h-8 w-8 ml-auto rounded" /> {/* Button Skeleton */}
+                  <Skeleton className="h-8 w-8 ml-auto rounded" />{" "}
+                  {/* Button Skeleton */}
                 </TableCell>
               </TableRow>
             ))}
