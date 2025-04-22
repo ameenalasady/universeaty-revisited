@@ -143,12 +143,18 @@ except Exception as e:
     client = None # Explicitly ensure client is None on failure
 
 
-# --- Request/Response Logging ---
+# --- Request/Response Lifecycle Hooks ---
 """
-Uses Flask decorators to log information about each incoming request
-and its corresponding response. Logs request details before processing
-and response details (including duration) after processing. Also logs
-unhandled exceptions during request handling.
+Uses Flask decorators to perform actions at different stages of the request lifecycle:
+- @app.before_request: Logs request start time and basic info.
+- @app.after_request (log_response_info): Logs request completion, status, and duration.
+- @app.after_request (add_caching_headers): Adds appropriate Cache-Control headers based on endpoint/status.
+- @app.teardown_request: Logs any exceptions that occurred during request handling.
+
+Note: Flask calls `after_request` handlers in reverse order of definition.
+Therefore, `add_caching_headers` runs *before* `log_response_info`, allowing
+the logger to see the final response state including cache headers if needed (though
+current log message doesn't include headers).
 """
 @app.before_request
 def log_request_info():
@@ -167,7 +173,9 @@ def log_request_info():
 
 @app.after_request
 def log_response_info(response):
-    """Logs information *after* the request has been processed successfully."""
+    """
+    Logs information *after* the request has been processed successfully.
+    """
     duration_ms = (time.time() - g.start_time) * 1000 if hasattr(g, 'start_time') else -1
     log.info(
         f"Request End: {request.method} {request.path} from {request.remote_addr} "
@@ -179,7 +187,42 @@ def log_response_info(response):
     #         log.debug(f"Response JSON: {response.get_json()}")
     #     except Exception:
     #         log.debug("Could not get response JSON for logging.")
-    return response
+    return response # Must return the response
+
+@app.after_request
+def add_caching_headers(response):
+    """
+    Adds appropriate Caching headers to the response *after* the request
+    has been processed successfully, based on the endpoint and status code.
+    """
+    path = request.path
+    # Apply appropriate Cache-Control directives based on endpoint and status
+    if request.method == 'GET' and 200 <= response.status_code < 300:
+        if path == '/health':
+            # Health status should be fresh, force revalidation
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache' # HTTP/1.0 compatibility
+            response.headers['Expires'] = '0' # Proxies
+        elif path == '/terms':
+            # Terms change very infrequently
+            response.headers['Cache-Control'] = 'public, max-age=3600' # Cache for 1 hour
+        elif re.match(r'/terms/\d+/courses$', path):
+            # Course list for a term is relatively stable during the term
+            response.headers['Cache-Control'] = 'public, max-age=600' # Cache for 10 minutes
+        elif re.match(r'/terms/\d+/courses/.+$', path):
+            # Course details (especially seats) change frequently
+            response.headers['Cache-Control'] = 'public, max-age=60' # Cache for 1 minute
+        else:
+            # Default for other successful GET requests: force revalidation
+            response.headers['Cache-Control'] = 'no-cache'
+    elif response.status_code >= 400 or request.method != 'GET':
+         # Ensure errors and non-GET responses (like POST, PUT, DELETE) are not cached
+         response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+         response.headers['Pragma'] = 'no-cache'
+         response.headers['Expires'] = '0'
+
+    return response # Must return the response
+
 
 @app.teardown_request
 def log_exception_info(exception=None):
@@ -243,6 +286,7 @@ def health_check():
                                 (e.g., terms not loaded yet, email config missing, one thread down).
         - 503 Service Unavailable: {"status": "unhealthy", "details": {...}}
                                    Critical failure (client not initialized, database inaccessible).
+    Cache: No-cache (set in add_caching_headers).
     """
     log.info("Health check requested.")
     start_time = time.time()
@@ -374,11 +418,12 @@ def get_terms():
     """
     Endpoint: GET /terms
     Purpose: Retrieves the list of available academic term resources.
-    Rate Limit: 60 requests per minute; 5 per second per IP. # Corrected Rate Limit comment
+    Rate Limit: 60 requests per minute; 5 per second per IP.
     Responses:
         - 200 OK: JSON array of term objects (e.g., [{"id": "2241", "name": "Winter 2024"}, ...]).
         - 503 Service Unavailable: If the timetable client is not initialized.
         - 500 Internal Server Error: If an unexpected error occurs during retrieval.
+    Cache: Public, 1 hour max-age (set in add_caching_headers).
     """
     active_client = get_client_or_abort()
     if isinstance(active_client, tuple): return active_client
@@ -391,13 +436,12 @@ def get_terms():
         log.error(f"Error in /terms endpoint: {e}", exc_info=True)
         return jsonify({"error": "An internal error occurred retrieving terms."}), 500
 
-# --- Modified Endpoint ---
 @app.route('/terms/<string:term_id>/courses', methods=['GET'])
 @limiter.limit("60 per minute; 5 per second")
 def get_term_courses(term_id):
     """
     Endpoint: GET /terms/<term_id>/courses
-    Purpose: Retrieves the list of available course resources for a specific academic term.
+    Purpose: Retrieves the list of available course code strings for a specific academic term.
     Path Parameter:
         - term_id (string): The numeric identifier for the term resource.
     Rate Limit: 60 requests per minute; 5 per second per IP.
@@ -408,6 +452,7 @@ def get_term_courses(term_id):
         - 404 Not Found: If the specified term_id does not exist.
         - 503 Service Unavailable: If the timetable client is not initialized or course data for the term isn't ready yet.
         - 500 Internal Server Error: For other unexpected errors.
+    Cache: Public, 10 minutes max-age (set in add_caching_headers).
     """
     active_client = get_client_or_abort()
     if isinstance(active_client, tuple): return active_client
@@ -432,12 +477,12 @@ def get_term_courses(term_id):
         log.debug(f"Retrieved {len(courses)} courses for term {term_id}.")
         return jsonify(courses)
     except Exception as e:
-        log.error(f"Error in /terms/{term_id}/courses endpoint: {e}", exc_info=True) # Updated log message path
+        log.error(f"Error in /terms/{term_id}/courses endpoint: {e}", exc_info=True)
         return jsonify({"error": "An internal error occurred retrieving courses."}), 500
 
 @app.route('/terms/<string:term_id>/courses/<path:course_code>', methods=['GET'])
 @limiter.limit("100 per hour; 15 per minute; 2 per second")
-def get_course_details(term_id, course_code): # Renamed function
+def get_course_details(term_id, course_code):
     """
     Endpoint: GET /terms/<term_id>/courses/<course_code>
     Purpose: Retrieves the detailed representation of a specific course resource
@@ -446,7 +491,7 @@ def get_course_details(term_id, course_code): # Renamed function
         - term_id (string): The numeric identifier for the term resource.
         - course_code (path string): The course code identifier for the course resource (e.g., "COMPSCI 1JC3").
           Using <path:> allows for potential slashes or other special characters if they ever occur in course codes.
-    Rate Limit: 100 requests per hour; 15 per minute; 2 per second per IP. # Corrected Rate Limit comment
+    Rate Limit: 100 requests per hour; 15 per minute; 2 per second per IP.
     Input Validation: Checks term ID format, basic course code format, term existence,
                      and course existence within the term. Normalizes course code (uppercase).
     Responses:
@@ -457,6 +502,7 @@ def get_course_details(term_id, course_code): # Renamed function
                          or if details couldn't be retrieved (e.g., no sections listed).
         - 503 Service Unavailable: If the timetable client is not initialized or course list for the term is unavailable.
         - 500 Internal Server Error: For other unexpected errors.
+    Cache: Public, 1 minute max-age (set in add_caching_headers).
     """
     active_client = get_client_or_abort()
     if isinstance(active_client, tuple): return active_client
@@ -502,7 +548,7 @@ def get_course_details(term_id, course_code): # Renamed function
         return jsonify(course_detail_data)
 
     except Exception as e:
-        log.error(f"Error in /terms/{term_id}/courses/{course_code} endpoint: {e}", exc_info=True) # Updated log message path
+        log.error(f"Error in /terms/{term_id}/courses/{course_code} endpoint: {e}", exc_info=True)
         return jsonify({"error": "An internal error occurred retrieving course details."}), 500
 
 
@@ -513,7 +559,7 @@ def add_watch_request():
     Endpoint: POST /watch
     Purpose: Creates a new watch resource, requesting notifications for a specific course section.
              The client will periodically check and send an email notification if seats open.
-    Rate Limit: 30 requests per hour; 10 per minute; 3 per 10 seconds per IP. # Corrected Rate Limit comment
+    Rate Limit: 30 requests per hour; 10 per minute; 3 per 10 seconds per IP.
     Request Body: JSON payload representing the watch request with required string fields:
         - email: User's email address.
         - term_id: Numeric string term identifier.
@@ -528,6 +574,7 @@ def add_watch_request():
         - 409 Conflict: If the user already has a pending watch request for the same section resource.
         - 503 Service Unavailable: If the timetable client or email notification system is not configured/ready.
         - 500 Internal Server Error: For unexpected errors during processing or database interaction.
+    Cache: No-store (POST request, set in add_caching_headers).
     """
     active_client = get_client_or_abort()
     if isinstance(active_client, tuple): return active_client
@@ -645,7 +692,8 @@ def add_watch_request():
 Defines custom error handlers for common HTTP status codes and generic exceptions.
 These handlers ensure that errors are caught and returned to the client in a
 consistent JSON format, rather than default HTML error pages. They also help
-in logging errors appropriately on the server side.
+in logging errors appropriately on the server side. Caching headers for errors
+are set in the `add_caching_headers` handler.
 """
 
 @app.errorhandler(400)
