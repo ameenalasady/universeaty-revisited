@@ -94,6 +94,7 @@ import {
   XCircle,
   Coffee,
   Github,
+  Signal,
 } from "lucide-react";
 import { cn } from "@/lib/utils"; // Utility for merging Tailwind classes
 
@@ -844,8 +845,9 @@ function App() {
         </main>
 
         {/* Footer */}
-        <footer className="mt-6 py-6 flex items-center justify-center gap-6 text-sm text-muted-foreground border-t">
-          <Button variant="link" asChild className="text-muted-foreground">
+        <footer className="mt-6 py-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-muted-foreground border-t">
+          {/* Ko-fi Link */}
+          <Button variant="link" asChild className="text-muted-foreground p-0 h-auto">
             <a
               href="https://ko-fi.com/ameenalasady"
               target="_blank"
@@ -855,7 +857,8 @@ function App() {
               Support on Ko-fi
             </a>
           </Button>
-          <Button variant="link" asChild className="text-muted-foreground">
+          {/* GitHub Link */}
+          <Button variant="link" asChild className="text-muted-foreground p-0 h-auto">
             <a
               href="https://github.com/ameenalasady/universeaty-revisited"
               target="_blank"
@@ -863,6 +866,17 @@ function App() {
             >
               <Github className="mr-1.5 h-4 w-4" />
               View on GitHub
+            </a>
+          </Button>
+          {/* Status Page Link (UptimeRobot) */}
+          <Button variant="link" asChild className="text-muted-foreground p-0 h-auto">
+            <a
+              href="https://stats.uptimerobot.com/CmsUh6hffi"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Signal className="mr-1.5 h-4 w-4" /> {/* Signal icon */}
+              Service Status
             </a>
           </Button>
         </footer>
