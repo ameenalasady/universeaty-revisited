@@ -6,3 +6,4 @@ Flask
 Flask-Limiter
 redis
 flask_cors
+Jinja2

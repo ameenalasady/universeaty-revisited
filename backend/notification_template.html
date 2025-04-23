@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>Universeaty Seat Alert</title>
+<style>
+  /* --- Base Styles --- */
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+    line-height: 1.6;
+    color: #333333; /* Dark grey for readability */
+    margin: 0 !important;
+    padding: 0 !important;
+    background-color: #f4f7f9; /* Slightly softer background */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-text-size-adjust: 100%;
+    -ms-text-size-adjust: 100%;
+    width: 100% !important;
+  }
+  table, td, th {
+      mso-table-lspace: 0pt;
+      mso-table-rspace: 0pt;
+      border-collapse: collapse; /* Ensure borders collapse */
+  }
+  img {
+      -ms-interpolation-mode: bicubic;
+      max-width: 100%;
+      border: 0;
+      outline: none;
+      text-decoration: none;
+      display: block;
+  }
+   a {
+    color: #0067cc; /* Slightly refined blue */
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
+  p {
+    margin: 0 0 1em 0; /* Consistent paragraph spacing */
+  }
+  h1, h2, h3 {
+    margin: 1.5em 0 0.5em 0;
+    line-height: 1.3;
+    font-weight: 600;
+    color: #111111;
+  }
+  strong { font-weight: 600; color: #111111; }
+
+  .email-wrapper {
+    background-color: #f4f7f9;
+    padding: 20px 10px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .container {
+    max-width: 600px;
+    margin: 0 auto;
+    background-color: #ffffff;
+    padding: 30px; /* Increased padding */
+    border: 1px solid #dfe3e8; /* Softer border */
+    border-radius: 8px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.05); /* Subtle shadow */
+    box-sizing: border-box;
+  }
+  .header {
+    text-align: center;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #eeeeee;
+    margin-bottom: 25px;
+  }
+  .header img { /* Placeholder for logo */
+      max-height: 50px;
+      width: auto;
+      margin: 0 auto;
+  }
+  .details-box {
+    background-color: #f9fafb; /* Very light grey */
+    padding: 18px; /* Slightly more padding */
+    border: 1px solid #e9ecef;
+    margin: 25px 0;
+    border-radius: 5px;
+    font-size: 0.95em; /* Slightly smaller text */
+  }
+  .details-box .detail-item {
+      margin-bottom: 12px; /* Spacing between items */
+      line-height: 1.5;
+  }
+   .details-box .detail-item:last-child {
+      margin-bottom: 0;
+  }
+  .details-box strong {
+    display: block; /* Label on its own line */
+    font-weight: 600;
+    color: #555555; /* Grey label */
+    margin-bottom: 2px;
+    font-size: 0.9em; /* Smaller label */
+  }
+  .details-box span.value {
+      color: #111111; /* Darker value */
+      display: inline-block;
+  }
+   .details-box .timestamp {
+      font-size: 0.85em;
+      color: #777777;
+      display: block; /* Timestamp on new line */
+      margin-top: 3px;
+  }
+
+  .action-box {
+    background-color: #eaf2ff; /* Lighter blue */
+    padding: 25px; /* More padding */
+    border: 1px solid #cce0ff;
+    margin: 30px 0;
+    border-radius: 5px;
+    text-align: center;
+  }
+   .action-box .action-title {
+      font-weight: 600; /* Bold but not overly strong */
+      display: block;
+      margin-bottom: 15px;
+      color: #222222; /* Darker text */
+      font-size: 1.1em;
+  }
+  .action-box a.button {
+    font-weight: bold;
+    text-decoration: none !important; /* Force no underline */
+    display: inline-block;
+    padding: 12px 30px; /* Adjusted padding */
+    background-color: #007bff;
+    color: #ffffff !important; /* Ensure white text */
+    border-radius: 5px;
+    transition: background-color 0.3s ease;
+    mso-padding-alt: 0; /* Reset padding for Outlook */
+    text-underline-color: #007bff; /* Hide underline in Outlook */
+    border: none; /* Remove potential borders */
+    font-size: 1em; /* Ensure button text size is good */
+  }
+  /* VML fallback styles */
+  .action-box .button-td { /* Add class to TD containing VML */
+      border-radius: 5px;
+      background-color: #007bff;
+      cursor: auto;
+  }
+  .action-box a.button:hover {
+    background-color: #0056b3 !important; /* Darker blue on hover */
+    text-decoration: none !important;
+    color: #ffffff !important;
+  }
+  .action-box .action-note {
+    font-size: 0.9em;
+    display: block;
+    margin-top: 15px; /* More space above note */
+    color: #555555;
+  }
+  .notes {
+    margin-top: 25px;
+    font-size: 0.95em;
+  }
+  .notes ul {
+    padding-left: 20px;
+    list-style: disc;
+    margin: 10px 0 0 0; /* Adjust list margin */
+  }
+  .notes li {
+    margin-bottom: 12px; /* Consistent list item spacing */
+    line-height: 1.5;
+  }
+  .highlight {
+    color: #d9534f; /* Keep highlight color */
+    font-weight: 600;
+  }
+  .footer {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #e9ecef; /* Softer border */
+    font-size: 0.85em; /* Smaller footer text */
+    color: #777777;
+    text-align: center;
+    line-height: 1.5;
+  }
+  .footer p {
+      margin: 5px 0; /* Tighter footer paragraph spacing */
+  }
+  .footer a {
+    color: #0067cc;
+    text-decoration: none;
+  }
+  .footer a:hover {
+    text-decoration: underline;
+  }
+  .footer .support-link {
+      display: block; /* Put support link on its own line */
+      margin: 10px 0;
+  }
+  .footer .footer-links {
+      margin-top: 15px;
+  }
+  .footer .footer-links a {
+      margin: 0 5px;
+  }
+
+  @media screen and (max-width: 600px) {
+    .email-wrapper {
+      padding: 10px 0 !important; /* Remove side padding */
+    }
+    .container {
+      width: 100% !important;
+      max-width: 100% !important;
+      padding: 20px !important; /* Adjust padding */
+      border-radius: 0 !important;
+      border-left: 0 !important;
+      border-right: 0 !important;
+      box-shadow: none !important;
+    }
+    body {
+        font-size: 16px !important;
+        line-height: 1.7 !important;
+    }
+    h1, h2, h3, p {
+        max-width: 100% !important;
+    }
+    .action-box {
+        padding: 20px !important;
+    }
+    .action-box a.button {
+        display: block !important;
+        width: 90% !important;
+        max-width: 320px;
+        margin: 0 auto 15px auto !important; /* Add bottom margin */
+        padding: 15px 10px !important;
+    }
+    .footer {
+        font-size: 0.9em !important; /* Slightly smaller footer on mobile */
+    }
+  }
+</style>
+
+<!--[if mso]>
+<style type="text/css">
+body, table, td, p, a, li, blockquote{-ms-text-size-adjust:100%; -webkit-text-size-adjust:100%;}
+table, td {border-collapse: collapse !important;}
+.details-box strong {
+    margin-bottom: 3px; /* Adjust MSO spacing */
+    line-height: 1.5;
+}
+.action-box a.button {
+    padding: 12px 30px !important; /* Ensure MSO padding */
+    font-size: 16px !important; /* Ensure font size for VML */
+}
+.button-td { /* Style the TD for VML button */
+    border-radius: 5px;
+    background-color: #007bff;
+}
+.container {
+    /* Add specific width for Outlook desktop */
+    width: 600px !important;
+}
+</style>
+<![endif]-->
+
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif; line-height: 1.6; color: #333333; margin: 0 !important; padding: 0 !important; background-color: #f4f7f9; width: 100% !important;">
+  <!-- Outlook Wrapper -->
+  <!--[if mso | IE]>
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f4f7f9;">
+    <tr>
+      <td>
+  <![endif]-->
+
+  <div class="email-wrapper" style="background-color: #f4f7f9; padding: 20px 10px; width: 100%; box-sizing: border-box;">
+    <!-- Content Wrapper -->
+    <!--[if mso | IE]>
+    <table role="presentation" align="center" border="0" cellpadding="0" cellspacing="0" class="container" style="width: 600px; background-color: #ffffff; border-radius: 8px; border: 1px solid #dfe3e8;">
+      <tr>
+        <td style="padding: 30px; line-height: 1.6;">
+    <![endif]-->
+    <div class="container" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 30px; border: 1px solid #dfe3e8; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); box-sizing: border-box;">
+
+      <!-- Optional Header -->
+      <div class="header" style="text-align: center; padding-bottom: 20px; border-bottom: 1px solid #eeeeee; margin-bottom: 25px;">
+        <!-- <img src="YOUR_LOGO_URL" alt="Universeaty Logo" style="max-height: 50px; width: auto; margin: 0 auto;"> -->
+        <h2 style="margin: 0; font-size: 1.4em; color: #111;">Universeaty Seat Alert</h2>
+      </div>
+
+      <p style="margin-bottom: 1.5em;">Hello,</p> <!-- Changed greeting slightly -->
+
+      <p style="margin-bottom: 1.5em;">Good news! A seat has opened up in a McMaster University course section you're monitoring with Universeaty.</p>
+
+      <div class="details-box" style="background-color: #f9fafb; padding: 18px; border: 1px solid #e9ecef; margin: 25px 0; border-radius: 5px; font-size: 0.95em;">
+        <!-- USE JINJA2 SYNTAX {{ variable }} -->
+        <div class="detail-item" style="margin-bottom: 12px; line-height: 1.5;">
+            <strong style="display: block; font-weight: 600; color: #555555; margin-bottom: 2px; font-size: 0.9em;">Course:</strong>
+            <span class="value" style="color: #111111; display: inline-block;">{{ course_code }}</span>
+        </div>
+        <div class="detail-item" style="margin-bottom: 12px; line-height: 1.5;">
+            <strong style="display: block; font-weight: 600; color: #555555; margin-bottom: 2px; font-size: 0.9em;">Term:</strong>
+            <span class="value" style="color: #111111; display: inline-block;">{{ term_name }} ({{ term_id }})</span>
+        </div>
+        <div class="detail-item" style="margin-bottom: 12px; line-height: 1.5;">
+            <strong style="display: block; font-weight: 600; color: #555555; margin-bottom: 2px; font-size: 0.9em;">Section:</strong>
+            <span class="value" style="color: #111111; display: inline-block;">{{ section_display }} (Key: {{ section_key }})</span>
+        </div>
+        <div class="detail-item" style="margin-bottom: 0; line-height: 1.5;">
+            <strong style="display: block; font-weight: 600; color: #555555; margin-bottom: 2px; font-size: 0.9em;">Open Seats:</strong>
+            <span class="value" style="color: #111111; display: inline-block;">{{ open_seats }}</span>
+            <span class="timestamp" style="font-size: 0.85em; color: #777777; display: block; margin-top: 3px;">(as of {{ check_time_str }})</span>
+        </div>
+      </div>
+
+      <div class="action-box" style="background-color: #eaf2ff; padding: 25px; border: 1px solid #cce0ff; margin: 30px 0; border-radius: 5px; text-align: center;">
+        <span class="action-title" style="font-weight: 600; display: block; margin-bottom: 15px; color: #222222; font-size: 1.1em;">Act Quickly to Secure Your Spot:</span>
+        <!-- VML Button for Outlook -->
+        <!--[if mso]>
+        <table role="presentation" border="0" cellspacing="0" cellpadding="0" align="center" style="margin: 0 auto;">
+          <tr>
+            <td align="center" class="button-td" role="presentation" style="border-radius: 5px; cursor: auto; mso-padding-alt: 12px 30px; background: #007bff;" bgcolor="#007bff">
+              <a href="{{ MYTIMETABLE_URL }}" target="_blank" style="display: inline-block; background: #007bff; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif; font-size: 16px; font-weight: bold; line-height: 1.2; margin: 0; text-decoration: none; text-transform: none; padding: 12px 30px; mso-padding-alt: 0px; border-radius: 5px; border: none;">
+                Visit MyTimetable to Register
+              </a>
+            </td>
+          </tr>
+        </table>
+        <![endif]-->
+        <!-- Button for other clients -->
+        <!--[if !mso]><!-->
+        <a href="{{ MYTIMETABLE_URL }}" target="_blank" class="button" style="font-weight: bold; text-decoration: none !important; display: inline-block; padding: 12px 30px; background-color: #007bff; color: #ffffff !important; border-radius: 5px; transition: background-color 0.3s ease; mso-padding-alt: 0; text-underline-color: #007bff; border: none; font-size: 1em;">Visit MyTimetable to Register</a>
+        <!--<![endif]-->
+        <br> <!-- Ensures space even if button wraps -->
+        <span class="action-note" style="font-size: 0.9em; display: block; margin-top: 15px; color: #555555;">Seats fill quickly – availability is not guaranteed.</span>
+      </div>
+
+      <div class="notes" style="margin-top: 25px; font-size: 0.95em;">
+        <p style="margin-bottom: 5px; font-weight: 600; color: #111;">Important Notes:</p>
+        <ul style="padding-left: 20px; list-style: disc; margin: 10px 0 0 0;">
+          <li style="margin-bottom: 12px; line-height: 1.5;">This is an automated alert. Seat availability can change rapidly.</li>
+          <li style="margin-bottom: 12px; line-height: 1.5;">You will <strong class="highlight" style="color: #d9534f; font-weight: 600;">not</strong> receive more alerts for this specific request (ID: {{ request_id }}).</li>
+          <li style="margin-bottom: 12px; line-height: 1.5;">Need to monitor this section again, or others? Visit <a href="{{ UNIVERSEATY_URL }}" target="_blank" style="color: #0067cc; text-decoration: none;">Universeaty</a> to set up a new request.</li>
+        </ul>
+      </div>
+
+      <div class="footer" style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e9ecef; font-size: 0.85em; color: #777777; text-align: center; line-height: 1.5;">
+        <p style="margin: 5px 0;">If you find Universeaty helpful, please consider supporting its future:</p>
+        <p class="support-link" style="margin: 10px 0;">
+            <a href="{{ SUPPORT_LINK }}" target="_blank" style="color: #0067cc; text-decoration: none;">{{ SUPPORT_LINK }}</a>
+        </p>
+        <p style="margin: 5px 0;">Thank you for using Universeaty!</p>
+        <p style="margin: 5px 0;"><em>The Universeaty Team</em></p>
+        <!-- <p class="footer-links" style="margin-top: 15px;">
+            Add real links later
+            <a href="#MANAGE_PREFS_URL" target="_blank" style="color: #0067cc; text-decoration: none; margin: 0 5px;">Manage Preferences</a> |
+            <a href="#UNSUBSCRIBE_URL" target="_blank" style="color: #0067cc; text-decoration: none; margin: 0 5px;">Unsubscribe</a>
+        </p> -->
+      </div>
+
+    </div>
+    <!--[if mso | IE]>
+        </td>
+      </tr>
+    </table>
+    <![endif]-->
+    <!-- End Content Wrapper -->
+  </div>
+  <!--[if mso | IE]>
+      </td>
+    </tr>
+  </table>
+  <![endif]-->
+  <!-- End Outlook Wrapper -->
+</body>
+</html>

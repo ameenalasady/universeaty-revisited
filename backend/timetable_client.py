@@ -5,10 +5,7 @@ import time
 import threading
 import re
 from collections import defaultdict
-import smtplib
-import ssl
 import os
-from email.message import EmailMessage
 import sqlite3
 from datetime import datetime
 import logging
@@ -23,6 +20,9 @@ Must be imported before the first logging call.
 """
 import logging_config
 
+# --- Import Email Utilities ---
+import email_utils
+
 # --- Environment and Configuration Loading ---
 """
 Loads environment variables from a .env file, typically used for storing
@@ -33,8 +33,8 @@ and default timing intervals for background tasks.
 load_dotenv()
 
 DATABASE_PATH = 'course_watches.db'
-EMAIL_SENDER = os.environ.get('EMAIL_SENDER')
-EMAIL_PASSWORD = os.environ.get('PASSWORD')
+EMAIL_SENDER = os.environ.get('EMAIL_SENDER') # Keep for initial check
+EMAIL_PASSWORD = os.environ.get('PASSWORD') # Keep for initial check
 DEFAULT_CHECK_INTERVAL = 60 # Check every 1 minute
 DEFAULT_UPDATE_INTERVAL = 3600 # Update terms/course lists every hour
 
@@ -61,54 +61,6 @@ class SectionInfo(TypedDict):
     open_seats: int
     block_type: str
 
-
-# --- Email Sending Function ---
-def send_email(email_address: str, subject: str, message: str) -> bool:
-    """
-    Sends an email using Gmail's SMTP server over SSL.
-
-    Handles basic validation of the recipient address and SMTP authentication.
-    Logs success or failure messages, including specific SMTP errors.
-
-    Args:
-        email_address: The recipient's email address.
-        subject: The subject line of the email.
-        message: The plain text body of the email.
-
-    Returns:
-        True if the email was sent successfully, False otherwise.
-    """
-    if not EMAIL_PASSWORD or not EMAIL_SENDER:
-        log.error("Email sender or password environment variable not set. Cannot send email.")
-        return False
-    if not re.match(r"[^@]+@[^@]+\.[^@]+", email_address):
-        log.error(f"Invalid recipient email format: {email_address}")
-        return False
-
-    em = EmailMessage()
-    em['From'] = EMAIL_SENDER
-    em['To'] = email_address
-    em['Subject'] = subject
-    em.set_content(message)
-
-    context = ssl.create_default_context()
-
-    try:
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context) as smtp:
-            smtp.login(EMAIL_SENDER, EMAIL_PASSWORD)
-            smtp.sendmail(EMAIL_SENDER, email_address, em.as_string())
-        log.info(f"Email successfully sent to {email_address} with subject '{subject}'")
-        # log.debug(f"Email body sent to {email_address}: {message[:100]}...") # Optional debug log
-        return True
-    except smtplib.SMTPAuthenticationError:
-        log.error(f"SMTP Authentication Error for {EMAIL_SENDER}. Check email/password (App Password?).")
-        return False
-    except smtplib.SMTPException as e:
-        log.error(f"Failed to send email to {email_address}: {e}")
-        return False
-    except Exception as e:
-        log.error(f"An unexpected error occurred during email sending: {e}")
-        return False
 
 # --- McMaster Timetable API Client Class ---
 class McMasterTimetableClient:
@@ -757,7 +709,7 @@ class McMasterTimetableClient:
         3. For each term, fetches details for all unique courses being watched in that term.
         4. Iterates through each pending request:
            - Checks if the specific section now has > 0 open seats using the fetched data.
-           - If seats are open, sends an email notification.
+           - If seats are open, sends an email notification using the email_utils module.
            - Updates the request status in the database (notified, error/cancelled, or just updates last_checked_at).
         5. Handles cases where a section might no longer exist (marks as error/cancelled).
         """
@@ -847,22 +799,24 @@ class McMasterTimetableClient:
                         term_info = next((t for t in self.terms if t['id'] == term_id), None)
                         if term_info: term_name = term_info['name']
 
-                    subject = f"McMaster Course Alert: Seats Open in {course_code}"
-                    message = (
-                        f"Hello,\n\n"
-                        f"Good news! Seats have opened up in a course section you were watching:\n\n"
-                        f"Course: {course_code}\n"
-                        f"Term: {term_name} ({term_id})\n"
-                        f"Section: {section_display} ({section_key})\n"
-                        f"Open Seats Currently: {current_open_seats}\n\n"
-                        f"Please visit MyTimetable ({self.base_url}) to register as soon as possible, as seats may fill up quickly.\n\n"
-                        f"This is an automated notification. You will not receive further alerts for this specific section request."
+                    email_content = email_utils.create_notification_email(
+                        course_code=course_code,
+                        term_name=term_name,
+                        term_id=term_id,
+                        section_display=section_display,
+                        section_key=section_key,
+                        open_seats=current_open_seats,
+                        request_id=req_id
                     )
 
-                    if send_email(email, subject, message):
-                        notified_ids.append(req_id) # Mark for DB update as notified
+                    if email_content:
+                        subject, html_body = email_content # Unpack only if successful
+                        if email_utils.send_email(email, subject, html_body=html_body):
+                            notified_ids.append(req_id) # Mark for DB update as notified
+                        else:
+                            log.error(f"Failed to send notification email for request ID {req_id}. It will remain pending and retry next cycle.")
                     else:
-                        log.error(f"Failed to send notification email for request ID {req_id}. It will remain pending and retry next cycle.")
+                        log.error(f"Failed to generate email content for request ID {req_id}. Jinja error? Template missing? It will remain pending.")
                         # Do not add to notified_ids if email failed
 
         # Update database statuses in bulk after checking all requests
