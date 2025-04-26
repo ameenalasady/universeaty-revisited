@@ -27,6 +27,10 @@ def setup_logging():
     This function configures the root logger, so any logger obtained via
     `logging.getLogger()` will inherit this configuration. It ensures that
     handlers are not added multiple times if called again.
+
+    Note: The logging levels set here (LOG_LEVEL) define the *initial* state.
+    Levels can be changed dynamically at runtime via the /log/level API endpoint
+    (if the API is running).
     """
     # Ensure the log directory exists
     try:

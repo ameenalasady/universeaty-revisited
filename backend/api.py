@@ -15,6 +15,9 @@ Imports necessary libraries:
 import logging
 import re
 import sys
+import os
+import secrets
+from functools import wraps
 from flask import Flask, request, jsonify, g
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -96,6 +99,14 @@ that requests and important application events are logged for monitoring and deb
 THIS IS NOW HANDLED BY logging_config.py
 """
 log = logging.getLogger(__name__) # Use application-specific logger
+
+# --- Load Admin API Key ---
+# Load the secret key (do this once during app setup)
+EXPECTED_ADMIN_API_KEY = os.environ.get('ADMIN_API_KEY')
+if not EXPECTED_ADMIN_API_KEY:
+    log.critical("CRITICAL: ADMIN_API_KEY environment variable not set. Log level endpoint will be inaccessible.")
+    # Optionally exit or disable the endpoint if key is mandatory
+    # exit(1) # Or handle more gracefully
 
 # --- Rate Limiting Setup ---
 """
@@ -215,8 +226,8 @@ def add_caching_headers(response):
         else:
             # Default for other successful GET requests: force revalidation
             response.headers['Cache-Control'] = 'no-cache'
-    elif response.status_code >= 400 or request.method != 'GET':
-         # Ensure errors and non-GET responses (like POST, PUT, DELETE) are not cached
+    elif response.status_code >= 400 or request.method not in ['GET', 'HEAD']: # Apply to non-GET/HEAD too
+         # Ensure errors and non-cacheable methods (like POST, PUT, DELETE) are not cached
          response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
          response.headers['Pragma'] = 'no-cache'
          response.headers['Expires'] = '0'
@@ -263,6 +274,37 @@ def get_client_or_abort():
         # Return a tuple that Flask can convert into a Response
         return jsonify({"error": "Service temporarily unavailable. Client initialization failed."}), 503
     return client # Return the initialized client instance
+
+# --- Authentication Decorator ---
+def require_admin_key(f):
+    """Decorator to require a valid admin API key for an endpoint."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        provided_key = None
+        auth_header = request.headers.get('Authorization')
+        api_key_header = request.headers.get('X-Admin-API-Key') # Support custom header too
+
+        if auth_header and auth_header.startswith('Bearer '):
+            provided_key = auth_header.split('Bearer ')[1]
+        elif api_key_header:
+            provided_key = api_key_header
+
+        # Check if the key is configured on the server *and* if a key was provided
+        if not EXPECTED_ADMIN_API_KEY:
+             log.error("Admin endpoint accessed, but ADMIN_API_KEY is not configured on server.")
+             return jsonify({"error": "Configuration error: Endpoint protection not set up."}), 503 # Service Unavailable
+
+        if not provided_key:
+            log.warning(f"Missing API key for protected endpoint {request.path} from {request.remote_addr}")
+            return jsonify({"error": "Unauthorized: API key required."}), 401
+
+        # Use secrets.compare_digest for timing-attack resistance
+        if secrets.compare_digest(provided_key, EXPECTED_ADMIN_API_KEY):
+            return f(*args, **kwargs) # Key is valid, proceed with the endpoint function
+        else:
+            log.warning(f"Invalid API key provided for protected endpoint {request.path} from {request.remote_addr}")
+            return jsonify({"error": "Forbidden: Invalid API key."}), 403 # Key provided but incorrect
+    return decorated_function
 
 # --- API Endpoints ---
 
@@ -517,6 +559,8 @@ def get_course_details(term_id, course_code):
 
     # Normalize code for consistent lookups
     normalized_course_code = course_code.strip().upper()
+    # Further normalize spaces if applicable (e.g., "COMPSCI  1JC3" -> "COMPSCI 1JC3")
+    normalized_course_code = ' '.join(normalized_course_code.split())
 
     try:
         # Validate term existence
@@ -542,6 +586,7 @@ def get_course_details(term_id, course_code):
         # Check if details were found (handles empty results or API issues for that specific course)
         if not course_detail_data:
             log.warning(f"Details requested but not found or empty for '{normalized_course_code}' in term {term_id}.")
+            # Return 404 if the course *exists* but details/sections are empty/unavailable from the source
             return jsonify({"error": f"Could not retrieve details for course '{normalized_course_code}' in term '{term_id}'. It might have no sections listed or data is currently unavailable."}), 404
 
         # log.debug(f"Successfully retrieved details for {normalized_course_code} (Term {term_id}): {course_detail_data}") # Optional debug log
@@ -569,6 +614,7 @@ def add_watch_request():
                      term existence, course existence within the term, and email notification system configuration.
     Responses:
         - 201 Created: {"message": "Successfully added watch request..."} on success. Location header is not included.
+        - 200 OK: {"message": "Successfully reactivated..."} if request was reactivated.
         - 400 Bad Request: Invalid JSON, missing fields, invalid data formats, term/course/section not found,
                            or trying to watch an already open section.
         - 409 Conflict: If the user already has a pending watch request for the same section resource.
@@ -611,11 +657,13 @@ def add_watch_request():
     course_code = data.get("course_code")
     if not isinstance(course_code, str) or not course_code.strip():
          validation_errors.append("Missing or empty 'course_code' field.")
-    # Basic format: Letters, optional space, digits, optional trailing letters/digits
-    elif not re.match(r"^[A-Za-z]+[ ]?\d+[A-Za-z0-9]*$", course_code.strip()):
-         validation_errors.append("Invalid course code format.")
+    # Basic format check (more lenient now handled by existence check later)
+    elif not re.match(r"^[A-Za-z0-9\s\-]+$", course_code.strip()):
+         validation_errors.append("Invalid characters in 'course_code' field.")
     else:
-        payload["course_code"] = re.sub(r'\s+', ' ', course_code.strip()).upper() # Normalize
+        # Normalize: Uppercase, ensure single space between parts if space exists
+        normalized_code = ' '.join(course_code.strip().upper().split())
+        payload["course_code"] = normalized_code
 
     # Validate Section Key
     section_key = data.get("section_key")
@@ -636,8 +684,8 @@ def add_watch_request():
     # --- Interaction with Client ---
     try:
         # Check if email system is configured (essential for this endpoint)
-        if not EMAIL_PASSWORD:
-            log.error("Attempted to add watch request, but email password is not configured.")
+        if not EMAIL_PASSWORD or not EMAIL_SENDER: # Check both sender and password now
+            log.error("Attempted to add watch request, but email sender or password is not configured.")
             return jsonify({"error": "Cannot add watch request: Notification system is not configured correctly."}), 503
 
         # Further validation requiring client data (term/course existence)
@@ -656,6 +704,7 @@ def add_watch_request():
             return jsonify({"error": f"Course code '{payload['course_code']}' not found in term '{payload['term_id']}'."}), 400
 
         # Delegate the final validation (section existence, seat count) and DB insertion to the client
+        # NOTE: Relies on the client's `add_course_watch_request` returning (True, msg) for *both* new and reactivated requests.
         success, message = active_client.add_course_watch_request(
             email=payload["email"],
             term_id=payload["term_id"],
@@ -666,25 +715,129 @@ def add_watch_request():
         # Handle response from the client
         if success:
             log.info(f"Successfully processed watch request for {payload['email']} - {payload['course_code']} ({payload['section_key']}). Message: {message}")
-            return jsonify({"message": message}), 201 # Use 201 Created status code
+            if "reactivated" in message.lower():
+                # Existing request was found and reactivated
+                return jsonify({"message": message}), 200 # OK
+            else:
+                # New request was added
+                return jsonify({"message": message}), 201 # Created
         else:
             # Map client error messages to appropriate HTTP status codes
             status_code = 400 # Default to Bad Request for client-side validation failures
-            if "already has a pending watch request" in message:
-                status_code = 409 # Conflict
+            if "already has an active pending watch request" in message:
+                 status_code = 409 # Conflict
             elif "already has" in message and "open seats" in message:
                 status_code = 400 # Bad Request (logic error by user trying to watch open section)
-            elif "not found for course" in message: # Client indicating invalid section *key*
+            elif "Section key" in message and "not found for course" in message: # Client indicating invalid section *key*
                 status_code = 400 # Bad Request (invalid input)
             elif "Database error" in message:
                  status_code = 500 # Internal Server Error
+            elif "Could not retrieve details for course" in message:
+                 status_code = 503 # Service temporarily unavailable (API issue downstream)
+            elif "Invalid Term ID" in message: # Should be caught earlier, but handle defensively
+                status_code = 400 # Bad request (invalid input)
+            elif "Course code" in message and "not found in term" in message: # Should be caught earlier
+                status_code = 400 # Bad request (invalid input)
+            elif "Invalid email format" in message:
+                status_code = 400 # Bad request (invalid input)
 
-            log.warning(f"Failed processing watch request for {payload['email']}, {payload['course_code']}, {payload['section_key']}: {message} (Status Code: {status_code})")
+            log.warning(f"Failed processing watch request for {payload['email']}, {payload['course_code']}, {payload['section_key']}: {message} (API Status Code: {status_code})")
             return jsonify({"error": message}), status_code
 
     except Exception as e:
         log.error(f"Error in /watch endpoint during client call or validation: {e}", exc_info=True)
         return jsonify({"error": "An internal error occurred while processing the watch request."}), 500
+
+# --- Endpoint for Log Level (Protected) ---
+@app.route('/log/level', methods=['PUT'])
+@limiter.limit("10 per hour") # Keep rate limiting
+@require_admin_key # Apply the authentication decorator
+def set_log_level():
+    """
+    Endpoint: PUT /log/level
+    Purpose: Dynamically changes the logging level for the application.
+             Affects the root logger and all its configured handlers (file, console).
+    Security: Protected by ADMIN_API_KEY via Authorization: Bearer or X-Admin-API-Key header.
+    Request Body: JSON payload with a single required string field:
+        - level (string): The desired logging level name (case-insensitive).
+                          Valid values: "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
+    Responses:
+        - 200 OK: {"message": "Log level set to [LEVEL_NAME]"} on success.
+        - 400 Bad Request: Invalid JSON, missing 'level' field, or invalid level name provided.
+        - 401 Unauthorized: If API key is missing.
+        - 403 Forbidden: If API key is invalid.
+        - 500 Internal Server Error: If an unexpected error occurs during level setting.
+        - 503 Service Unavailable: If ADMIN_API_KEY is not configured on the server.
+    Cache: No-store (PUT request, set in add_caching_headers).
+    """
+    # No need for the placeholder comment anymore, decorator handles auth
+
+    if not request.is_json:
+        return jsonify({"error": "Invalid request format. JSON payload required."}), 400
+
+    data = request.get_json()
+    if not data or 'level' not in data:
+        return jsonify({"error": "Missing 'level' field in JSON payload."}), 400
+
+    level_name_input = data['level']
+    if not isinstance(level_name_input, str):
+        return jsonify({"error": "'level' field must be a string."}), 400
+
+    level_name_upper = level_name_input.strip().upper()
+
+    # Validate the level name using the recommended dictionary
+    # Use logging._nameToLevel which maps level names (e.g., 'INFO') to numbers (e.g., 20)
+    if level_name_upper not in logging._nameToLevel:
+        # Get valid level names dynamically for the error message
+        valid_levels_dict = logging._nameToLevel
+        # Sort level names based on their numeric value for a standard order
+        valid_level_names_sorted = sorted(valid_levels_dict.keys(), key=lambda k: valid_levels_dict[k])
+
+        log.warning(f"Invalid log level '{level_name_input}' requested by {request.remote_addr} (authenticated)") # Added note
+        return jsonify({
+            "error": f"Invalid log level name: '{level_name_input}'. Valid levels are: {', '.join(valid_level_names_sorted)}"
+        }), 400
+    else:
+        # Get the numeric level directly from the dictionary
+        numeric_level = logging._nameToLevel[level_name_upper]
+
+    try:
+        # Get the root logger (configured by logging_config.py)
+        root_logger = logging.getLogger()
+
+        # Change the level of the root logger itself
+        # Use getLevelName() correctly here: numeric level -> string name
+        old_root_level_name = logging.getLevelName(root_logger.level)
+        root_logger.setLevel(numeric_level)
+        log.info(f"Root logger level changed from {old_root_level_name} to {level_name_upper}.")
+
+        # Change the level of all handlers attached to the root logger
+        changed_handlers = []
+        for handler in root_logger.handlers:
+            # Use getLevelName() correctly here: numeric level -> string name
+            old_handler_level_name = logging.getLevelName(handler.level)
+            handler.setLevel(numeric_level)
+            changed_handlers.append(f"{type(handler).__name__} (from {old_handler_level_name} to {level_name_upper})")
+
+        if changed_handlers:
+            log.info(f"Handler levels changed: {'; '.join(changed_handlers)}")
+        else:
+            # This case should ideally not happen if logging_config ran successfully
+            log.warning("No handlers found on the root logger to change level for.")
+
+        # Optional: Change specific named loggers if needed (e.g., Werkzeug)
+        # werkzeug_logger = logging.getLogger('werkzeug')
+        # if werkzeug_logger:
+        #     werkzeug_logger.setLevel(numeric_level)
+        #     log.info(f"Werkzeug logger level set to {level_name_upper}.")
+
+        # Changed log level from warning to info for successful authorized action
+        log.info(f"Logging level dynamically changed to {level_name_upper} by authenticated request from {request.remote_addr}")
+        return jsonify({"message": f"Log level set to {level_name_upper}"}), 200
+
+    except Exception as e:
+        log.error(f"Failed to set log level to '{level_name_upper}': {e}", exc_info=True)
+        return jsonify({"error": "An internal error occurred while setting the log level."}), 500
 
 
 # --- Error Handlers ---
@@ -707,6 +860,26 @@ def handle_bad_request(error):
     description = getattr(error, 'description', 'Bad Request')
     log.warning(f"Returning 400 Bad Request: {description}")
     return jsonify(error=description), 400
+
+@app.errorhandler(401) # Added handler for Unauthorized
+def handle_unauthorized(error):
+    """Handles 401 Unauthorized errors, typically from missing auth."""
+    response = getattr(error, 'response', None)
+    if isinstance(response, app.response_class):
+        return response
+    description = getattr(error, 'description', 'Unauthorized')
+    log.warning(f"Returning 401 Unauthorized for {request.path}: {description}")
+    return jsonify(error=description), 401
+
+@app.errorhandler(403) # Added handler for Forbidden
+def handle_forbidden(error):
+    """Handles 403 Forbidden errors, typically from invalid auth."""
+    response = getattr(error, 'response', None)
+    if isinstance(response, app.response_class):
+        return response
+    description = getattr(error, 'description', 'Forbidden')
+    log.warning(f"Returning 403 Forbidden for {request.path}: {description}")
+    return jsonify(error=description), 403
 
 @app.errorhandler(404)
 def handle_not_found(error):
@@ -772,13 +945,11 @@ def handle_generic_exception(e):
     # or should be handled by a more specific handler.
     from werkzeug.exceptions import HTTPException
     if isinstance(e, HTTPException):
-        # Re-raise it to let specific handlers (4xx, 5xx) catch it if defined
-        # If no specific handler exists, Flask's default behavior or the 500 handler will catch it.
-        # This prevents this generic handler from overriding specific ones like 404, 400 etc.
-        # However, since we defined handlers for common ones, we likely want the generic 500 for anything else.
-        # The current setup with explicit handlers and this catch-all is reasonable.
-        pass # Let Flask handle routing to the correct @app.errorhandler based on the exception type
+        # If it's an HTTP exception we haven't explicitly handled (like 401/403 now handled above, or others),
+        # re-raise it so Flask can use its default handler or the most specific matching handler.
+        raise e
 
+    # Log any non-HTTP exception that reached here as critical
     log.critical(f"Unhandled Exception caught by generic handler for {request.path}: {e}", exc_info=True) # Log as critical
     return jsonify(error="An unexpected error occurred."), 500
 
