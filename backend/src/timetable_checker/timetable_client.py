@@ -9,34 +9,29 @@ import os
 import sqlite3
 from datetime import datetime
 import logging
-from dotenv import load_dotenv
-import sys
+
+# --- Import Configuration First ---
+from .config import (
+    DATABASE_PATH,
+    EMAIL_SENDER,
+    EMAIL_PASSWORD,
+    DEFAULT_CHECK_INTERVAL_SECONDS,
+    DEFAULT_UPDATE_INTERVAL_SECONDS,
+    BASE_URL_MYTIMETABLE,
+    # Add other config vars if needed directly in this module's top level
+)
 
 # --- Centralized Logging Setup ---
 """
 Imports the centralized logging configuration from logging_config.py.
 This sets up file and console handlers for the entire application.
-Must be imported before the first logging call.
+Must be imported before the first logging call (and after config).
 """
-import logging_config
+from . import logging_config
 
 # --- Import Email Utilities ---
-import email_utils
-
-# --- Environment and Configuration Loading ---
-"""
-Loads environment variables from a .env file, typically used for storing
-sensitive information like email credentials securely outside the codebase.
-Sets up global configuration constants for database path, email settings,
-and default timing intervals for background tasks.
-"""
-load_dotenv()
-
-DATABASE_PATH = 'course_watches.db'
-EMAIL_SENDER = os.environ.get('EMAIL_SENDER') # Keep for initial check
-EMAIL_PASSWORD = os.environ.get('PASSWORD') # Keep for initial check
-DEFAULT_CHECK_INTERVAL = 60 # Check every 1 minute
-DEFAULT_UPDATE_INTERVAL = 3600 # Update terms/course lists every hour
+# Email utils will get its own config internally
+from . import email_utils
 
 # --- Logging Setup ---
 """
@@ -45,9 +40,7 @@ Sets the logging level to INFO and defines a standard format for log messages,
 including timestamp, level, thread name, and the message itself.
 THIS IS NOW HANDLED BY logging_config.py
 """
-# logging.basicConfig(level=logging.INFO,
-#                     format='%(asctime)s - %(levelname)s - %(threadName)s - %(message)s') # <<< REMOVED
-log = logging.getLogger(__name__) # Gets logger configured by logging_config
+log = logging.getLogger(__name__)
 
 # --- TypedDicts for Data Structures ---
 """
@@ -76,11 +69,12 @@ class McMasterTimetableClient:
         'FLD', 'STO', 'IND', 'LEC', 'TUT', 'EXC', 'THE'
     }
 
+    # Use defaults imported from config
     def __init__(self,
-                 base_url: str = "https://mytimetable.mcmaster.ca",
+                 base_url: str = BASE_URL_MYTIMETABLE,
                  db_path: str = DATABASE_PATH,
-                 update_interval: int = DEFAULT_UPDATE_INTERVAL,
-                 check_interval: int = DEFAULT_CHECK_INTERVAL):
+                 update_interval: int = DEFAULT_UPDATE_INTERVAL_SECONDS,
+                 check_interval: int = DEFAULT_CHECK_INTERVAL_SECONDS):
         """
         Initializes the client, session, database connection, and data caches.
 
@@ -175,7 +169,18 @@ class McMasterTimetableClient:
         to prevent duplicate watches per user/section. Adds indexes for performance.
         Uses a lock to ensure thread safety during initialization.
         """
+        # Uses self.db_path set in __init__
         log.info(f"Initializing database at: {self.db_path}")
+        # Ensure the directory for the database exists
+        db_dir = os.path.dirname(self.db_path)
+        if not os.path.exists(db_dir):
+             try:
+                 os.makedirs(db_dir, exist_ok=True)
+                 log.info(f"Created database directory: {db_dir}")
+             except OSError as e:
+                 log.error(f"Failed to create database directory {db_dir}: {e}")
+                 raise # Critical failure
+
         with self.db_lock:
             try:
                 # Use check_same_thread=False because background threads will access the DB
@@ -215,7 +220,6 @@ class McMasterTimetableClient:
             conn = None
             start_time = time.time()
             try:
-                # Connect with a timeout (e.g., 5 seconds)
                 conn = sqlite3.connect(self.db_path, timeout=5, check_same_thread=False)
                 cursor = conn.cursor()
                 cursor.execute("SELECT 1") # Simple, fast query to test connectivity
@@ -886,6 +890,7 @@ class McMasterTimetableClient:
             update_interval: Interval (seconds) for refreshing term/course lists.
             check_interval: Interval (seconds) for checking watched courses.
         """
+        # Intervals are passed from __init__, which uses config defaults or arguments
         update_interval = max(3600, update_interval) # Minimum 1 hour
         check_interval = max(60, check_interval)     # Minimum 1 minute
 
@@ -974,13 +979,13 @@ if __name__ == '__main__':
       interrupted (Ctrl+C).
     """
     if not EMAIL_PASSWORD or not EMAIL_SENDER:
-        log.critical("CRITICAL: 'PASSWORD' or 'EMAIL_SENDER' environment variable not set. Email notifications will fail.")
+        log.critical("CRITICAL: 'PASSWORD' or 'EMAIL_SENDER' environment variable not set (via config). Email notifications will fail.")
         # Consider exiting if email is essential: exit(1)
 
     log.info("Starting timetable client script...")
 
-    # Initialize the client (adjust intervals for testing if needed)
-    client = McMasterTimetableClient(check_interval=60, update_interval=300) # Check every 1 min, update lists every 5 mins
+    # Initialize the client using defaults from config, unless overridden by args here
+    client = McMasterTimetableClient() # Use config defaults
 
     terms = client.get_terms()
     if not terms:

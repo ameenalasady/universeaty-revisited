@@ -22,19 +22,26 @@ from flask import Flask, request, jsonify, g
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_cors import CORS
-from dotenv import load_dotenv
 import time
 from werkzeug.middleware.proxy_fix import ProxyFix
 from datetime import datetime, timezone
 import threading
 
+# --- Import Configuration First ---
+# This module now handles path calculation and .env loading
+from .config import (
+    ADMIN_API_KEY,
+    EMAIL_PASSWORD,
+    EMAIL_SENDER
+)
+
 # --- Centralized Logging Setup ---
 """
 Imports the centralized logging configuration from logging_config.py.
 This sets up file and console handlers for the entire application.
-Must be imported before the first logging call.
+Must be imported before the first logging call (and after config).
 """
-import logging_config
+from . import logging_config
 
 # --- Application-Specific Imports ---
 """
@@ -44,26 +51,13 @@ ImportError if the client file is missing, preventing the application
 from starting incorrectly.
 """
 try:
-    from timetable_client import (
-        McMasterTimetableClient,
-        DATABASE_PATH,
-        DEFAULT_CHECK_INTERVAL,
-        DEFAULT_UPDATE_INTERVAL,
-        EMAIL_PASSWORD,
-        EMAIL_SENDER
-    )
+    from .timetable_client import McMasterTimetableClient
 except ImportError:
     # Use print here as logging might not be configured if import fails early
     print("Error: Could not import McMasterTimetableClient.", file=sys.stderr)
     print("Ensure 'timetable_client.py' exists and is in the same directory or Python path.", file=sys.stderr)
     exit(1) # Stop execution if client cannot be imported
 
-# --- Configuration & Initialization ---
-"""
-Loads environment variables from a .env file (if present) which typically
-contains sensitive data like EMAIL_PASSWORD. Initializes the core Flask application object.
-"""
-load_dotenv()
 app = Flask(__name__)
 
 app.wsgi_app = ProxyFix(
@@ -100,14 +94,6 @@ THIS IS NOW HANDLED BY logging_config.py
 """
 log = logging.getLogger(__name__) # Use application-specific logger
 
-# --- Load Admin API Key ---
-# Load the secret key (do this once during app setup)
-EXPECTED_ADMIN_API_KEY = os.environ.get('ADMIN_API_KEY')
-if not EXPECTED_ADMIN_API_KEY:
-    log.critical("CRITICAL: ADMIN_API_KEY environment variable not set. Log level endpoint will be inaccessible.")
-    # Optionally exit or disable the endpoint if key is mandatory
-    # exit(1) # Or handle more gracefully
-
 # --- Rate Limiting Setup ---
 """
 Initializes and configures Flask-Limiter to protect the API against abuse
@@ -135,17 +121,14 @@ in API endpoints.
 log.info("Initializing McMasterTimetableClient...")
 client = None # Initialize client as None before try block
 try:
-    if not EMAIL_PASSWORD:
+    # Check imported config values
+    if not EMAIL_PASSWORD or not EMAIL_SENDER:
          # Log as critical because email notifications will fail
-         log.critical("CRITICAL: 'PASSWORD' environment variable not set. Email notifications will fail. Watch requests will be disabled.")
+         log.critical("CRITICAL: EMAIL_SENDER or EMAIL_PASSWORD not set (via config). Email notifications will fail. Watch requests will be disabled.")
          # API can still run for read-only operations, but watch requests will fail later.
 
-    # Instantiate the client using configuration constants
-    client = McMasterTimetableClient(
-        db_path=DATABASE_PATH,
-        check_interval=DEFAULT_CHECK_INTERVAL,
-        update_interval=DEFAULT_UPDATE_INTERVAL
-    )
+    # Instantiate the client using configuration defaults defined within the client/config
+    client = McMasterTimetableClient()
     log.info("McMasterTimetableClient initialized successfully.")
 
 except Exception as e:
@@ -290,8 +273,8 @@ def require_admin_key(f):
             provided_key = api_key_header
 
         # Check if the key is configured on the server *and* if a key was provided
-        if not EXPECTED_ADMIN_API_KEY:
-             log.error("Admin endpoint accessed, but ADMIN_API_KEY is not configured on server.")
+        if not ADMIN_API_KEY:
+             log.error("Admin endpoint accessed, but ADMIN_API_KEY is not configured on server (via config).")
              return jsonify({"error": "Configuration error: Endpoint protection not set up."}), 503 # Service Unavailable
 
         if not provided_key:
@@ -299,7 +282,7 @@ def require_admin_key(f):
             return jsonify({"error": "Unauthorized: API key required."}), 401
 
         # Use secrets.compare_digest for timing-attack resistance
-        if secrets.compare_digest(provided_key, EXPECTED_ADMIN_API_KEY):
+        if secrets.compare_digest(provided_key, ADMIN_API_KEY):
             return f(*args, **kwargs) # Key is valid, proceed with the endpoint function
         else:
             log.warning(f"Invalid API key provided for protected endpoint {request.path} from {request.remote_addr}")
@@ -356,7 +339,8 @@ def health_check():
         details["terms_loaded"] = "skipped"
         details["background_threads"]["updater_alive"] = "skipped"
         details["background_threads"]["checker_alive"] = "skipped"
-        details["email_configuration"] = "checked" if EMAIL_PASSWORD and EMAIL_SENDER else "missing_credentials" # Can still check this
+        # Check imported config values for email status
+        details["email_configuration"] = "ok" if EMAIL_PASSWORD and EMAIL_SENDER else "missing_credentials"
         overall_status = "unhealthy"
         status_code = 503
         log.warning("Health check: Client not initialized. Reporting unhealthy.")
@@ -445,8 +429,7 @@ def health_check():
     else:
         details["email_configuration"] = "missing_credentials"
         if overall_status == "healthy": overall_status = "degraded" # Email needed for full function
-        log.warning("Health check: Email credentials (PASSWORD/EMAIL_SENDER) missing. Reporting degraded.")
-
+        log.warning("Health check: Email credentials (PASSWORD/EMAIL_SENDER) missing (via config). Reporting degraded.")
 
     # --- Final Response ---
     duration = (time.time() - start_time) * 1000
@@ -684,8 +667,8 @@ def add_watch_request():
     # --- Interaction with Client ---
     try:
         # Check if email system is configured (essential for this endpoint)
-        if not EMAIL_PASSWORD or not EMAIL_SENDER: # Check both sender and password now
-            log.error("Attempted to add watch request, but email sender or password is not configured.")
+        if not EMAIL_PASSWORD or not EMAIL_SENDER:
+            log.error("Attempted to add watch request, but email sender or password is not configured (via config).")
             return jsonify({"error": "Cannot add watch request: Notification system is not configured correctly."}), 503
 
         # Further validation requiring client data (term/course existence)
@@ -970,8 +953,10 @@ if __name__ == '__main__':
 
     log.info("Starting Flask development server on host 0.0.0.0, port 5000...")
     # Note: debug=False is recommended for production. Use WSGI server (Gunicorn/uWSGI) in production.
-    # Example: gunicorn --workers 4 --bind 0.0.0.0:5000 api:app
+    # Example using waitress (as per systemd file): waitress-serve --host 0.0.0.0 --port 5000 timetable_checker:app
+    # Example using Gunicorn: gunicorn --chdir src -w 4 -b 0.0.0.0:5000 timetable_checker:app
     try:
+        # This direct app.run() is generally only for local development testing
         app.run(host='0.0.0.0', port=5000, debug=False)
     except Exception as e:
         log.critical(f"Flask server failed to start or crashed: {e}", exc_info=True)

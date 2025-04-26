@@ -1,45 +1,43 @@
-# email_utils.py
 import smtplib
 import ssl
 import os
 import re
 import logging
 from email.message import EmailMessage
-from dotenv import load_dotenv
 from datetime import datetime
-import pathlib
 from jinja2 import Environment, FileSystemLoader, select_autoescape, TemplateNotFound, TemplateSyntaxError
 
-# Load environment variables for email credentials
-load_dotenv()
-EMAIL_SENDER = os.environ.get('EMAIL_SENDER')
-EMAIL_PASSWORD = os.environ.get('PASSWORD')
+# --- Import Configuration First ---
+from .config import (
+    EMAIL_SENDER,
+    EMAIL_PASSWORD,
+    TEMPLATE_DIR,
+    TEMPLATE_FILENAME,
+    MYTIMETABLE_URL,
+    UNIVERSEATY_URL,
+    SUPPORT_LINK,
+)
 
 # Get a logger specific to this module
 log = logging.getLogger(__name__)
 
-# --- Constants for Links ---
-MYTIMETABLE_URL = "https://mytimetable.mcmaster.ca"
-UNIVERSEATY_URL = "https://universeaty.ca" # Replace with actual URL if different
-SUPPORT_LINK = "https://ko-fi.com/ameenalasady"
-
-# --- Path to the template directory ---
-# Jinja loads templates relative to a directory
-TEMPLATE_DIR = pathlib.Path(__file__).parent
-TEMPLATE_FILENAME = "notification_template.html" # Store filename separately
-
 # --- Setup Jinja2 Environment ---
+jinja_env = None # Initialize to None
 try:
     # FileSystemLoader looks for templates in the specified directory
     # autoescape helps prevent XSS if you were inserting user-generated content
-    jinja_env = Environment(
-        loader=FileSystemLoader(TEMPLATE_DIR),
-        autoescape=select_autoescape(['html', 'xml']) # Good practice
-    )
-    log.info(f"Jinja2 Environment initialized. Template directory: {TEMPLATE_DIR}")
+    # Check if the directory exists using os.path.isdir and imported TEMPLATE_DIR
+    if os.path.isdir(TEMPLATE_DIR):
+        jinja_env = Environment(
+            loader=FileSystemLoader(TEMPLATE_DIR),
+            autoescape=select_autoescape(['html', 'xml']) # Good practice
+        )
+        log.info(f"Jinja2 Environment initialized. Template directory: {TEMPLATE_DIR}")
+    else:
+        log.error(f"Jinja2 template directory not found: {TEMPLATE_DIR}")
+
 except Exception as e:
     log.exception("FATAL: Failed to initialize Jinja2 Environment.") # Log full traceback
-    jinja_env = None # Ensure jinja_env is None if setup fails
 
 # --- Email Content Generation ---
 
@@ -112,7 +110,7 @@ def send_email(email_address: str, subject: str, html_body: str) -> bool:
     (Function body remains the same as your previous version)
     """
     if not EMAIL_PASSWORD or not EMAIL_SENDER:
-        log.error("Email sender or password environment variable not set. Cannot send email.")
+        log.error("Email sender or password not configured (via config). Cannot send email.")
         return False
     if not re.match(r"[^@]+@[^@]+\.[^@]+", email_address):
         log.error(f"Invalid recipient email format: {email_address}")
