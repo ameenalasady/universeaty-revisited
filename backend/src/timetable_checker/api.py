@@ -32,7 +32,11 @@ import threading
 from .config import (
     ADMIN_API_KEY,
     EMAIL_PASSWORD,
-    EMAIL_SENDER
+    EMAIL_SENDER,
+    DATABASE_PATH,
+    DEFAULT_CHECK_INTERVAL_SECONDS,
+    DEFAULT_UPDATE_INTERVAL_SECONDS,
+    BASE_URL_MYTIMETABLE,
 )
 
 # --- Centralized Logging Setup ---
@@ -51,10 +55,11 @@ ImportError if the client file is missing, preventing the application
 from starting incorrectly.
 """
 try:
+    # Import the orchestrator client from the new file location
     from .timetable_client import McMasterTimetableClient
 except ImportError:
     # Use print here as logging might not be configured if import fails early
-    print("Error: Could not import McMasterTimetableClient.", file=sys.stderr)
+    print("Error: Could not import McMasterTimetableClient from timetable_client.py.", file=sys.stderr)
     print("Ensure 'timetable_client.py' exists and is in the same directory or Python path.", file=sys.stderr)
     exit(1) # Stop execution if client cannot be imported
 
@@ -128,7 +133,13 @@ try:
          # API can still run for read-only operations, but watch requests will fail later.
 
     # Instantiate the client using configuration defaults defined within the client/config
-    client = McMasterTimetableClient()
+    # Pass required config values that the orchestrator needs
+    client = McMasterTimetableClient(
+        base_url=BASE_URL_MYTIMETABLE,
+        db_path=DATABASE_PATH,
+        update_interval=DEFAULT_UPDATE_INTERVAL_SECONDS,
+        check_interval=DEFAULT_CHECK_INTERVAL_SECONDS
+    )
     log.info("McMasterTimetableClient initialized successfully.")
 
 except Exception as e:
@@ -369,11 +380,10 @@ def health_check():
     except Exception as e:
         details["terms_loaded"] = f"error: {type(e).__name__}"
         overall_status = "degraded"
-        log.error(f"Health check: Error checking terms: {e}", exc_info=False) # Keep log concise
-
+        log.error(f"Health check: Error checking ...: {e}", exc_info=True)
     # --- Check 3: Database Connectivity ---
     try:
-        db_ok = active_client.check_db_connection()
+        db_ok = active_client.storage.check_connection()
         if db_ok:
             details["database_connection"] = "ok"
             log.debug("Health check: Database connection successful.")
@@ -382,11 +392,6 @@ def health_check():
             overall_status = "unhealthy" # Database is critical for watches
             status_code = 503
             log.error("Health check: Database connection failed. Reporting unhealthy.")
-    except AttributeError:
-        details["database_connection"] = "check_method_missing" # Should not happen if client code is updated
-        overall_status = "unhealthy"
-        status_code = 503
-        log.error("Health check: Client object missing 'check_db_connection' method.")
     except Exception as e:
         details["database_connection"] = f"error: {type(e).__name__}"
         overall_status = "unhealthy" # Assume DB error is critical
@@ -507,7 +512,7 @@ def get_term_courses(term_id):
 
 @app.route('/terms/<string:term_id>/courses/<path:course_code>', methods=['GET'])
 @limiter.limit("100 per hour; 15 per minute; 2 per second")
-def get_course_details(term_id, course_code):
+def fetch_course_details(term_id, course_code):
     """
     Endpoint: GET /terms/<term_id>/courses/<course_code>
     Purpose: Retrieves the detailed representation of a specific course resource
@@ -516,7 +521,7 @@ def get_course_details(term_id, course_code):
         - term_id (string): The numeric identifier for the term resource.
         - course_code (path string): The course code identifier for the course resource (e.g., "COMPSCI 1JC3").
           Using <path:> allows for potential slashes or other special characters if they ever occur in course codes.
-    Rate Limit: 100 requests per hour; 15 per minute; 2 per second per IP.
+    Rate Limit: 100 per hour; 15 per minute; 2 per second per IP.
     Input Validation: Checks term ID format, basic course code format, term existence,
                      and course existence within the term. Normalizes course code (uppercase).
     Responses:
@@ -554,7 +559,8 @@ def get_course_details(term_id, course_code):
 
         # Validate course existence within the term before fetching details
         courses_in_term = active_client.get_courses(term_id)
-        if courses_in_term is None:
+
+        if courses_in_term is None or not isinstance(courses_in_term, list): # Ensure it's a list
              log.warning(f"Course list not ready for term {term_id} during detail request for '{normalized_course_code}'.")
              return jsonify({"error": f"Course list for term '{term_id}' is not ready. Please try again shortly."}), 503
         if normalized_course_code not in courses_in_term:
@@ -563,10 +569,13 @@ def get_course_details(term_id, course_code):
 
         # Fetch details using the normalized code
         log.info(f"Fetching details for course '{normalized_course_code}' in term {term_id}.")
-        details = active_client.get_course_details(term_id, [normalized_course_code])
+        details = active_client.fetch_course_details(term_id, [normalized_course_code])
         course_detail_data = details.get(normalized_course_code)
 
         # Check if details were found (handles empty results or API issues for that specific course)
+        # Note: The orchestrator's fetch_course_details is expected to return {} or {course_code: {}}
+        # on API failure or if the course has no sections listed. Check needs to handle this.
+        # The current check `if not course_detail_data:` correctly handles {} or {course_code: {}}
         if not course_detail_data:
             log.warning(f"Details requested but not found or empty for '{normalized_course_code}' in term {term_id}.")
             # Return 404 if the course *exists* but details/sections are empty/unavailable from the source
@@ -678,7 +687,7 @@ def add_watch_request():
             return jsonify({"error": f"Term ID '{payload['term_id']}' not found."}), 400
 
         courses_in_term = active_client.get_courses(payload["term_id"])
-        if courses_in_term is None:
+        if courses_in_term is None or not isinstance(courses_in_term, list): # Ensure it's a list
             log.warning(f"Watch request for term {payload['term_id']} failed: course list not yet loaded.")
             # Use 503 because the server state (course list) isn't ready
             return jsonify({"error": f"Course list for term '{payload['term_id']}' is not ready. Please try again shortly."}), 503
@@ -714,14 +723,14 @@ def add_watch_request():
             elif "Section key" in message and "not found for course" in message: # Client indicating invalid section *key*
                 status_code = 400 # Bad Request (invalid input)
             elif "Database error" in message:
-                 status_code = 500 # Internal Server Error
-            elif "Could not retrieve details for course" in message:
+                 status_code = 500 # Internal Server Error (error talking to repository)
+            elif "Could not retrieve details for course" in message: # Error fetching live data from API
                  status_code = 503 # Service temporarily unavailable (API issue downstream)
             elif "Invalid Term ID" in message: # Should be caught earlier, but handle defensively
                 status_code = 400 # Bad request (invalid input)
             elif "Course code" in message and "not found in term" in message: # Should be caught earlier
                 status_code = 400 # Bad request (invalid input)
-            elif "Invalid email format" in message:
+            elif "Invalid email format" in message: # Should be caught earlier
                 status_code = 400 # Bad request (invalid input)
 
             log.warning(f"Failed processing watch request for {payload['email']}, {payload['course_code']}, {payload['section_key']}: {message} (API Status Code: {status_code})")
