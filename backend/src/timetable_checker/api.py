@@ -57,11 +57,17 @@ from starting incorrectly.
 try:
     # Import the orchestrator client from the new file location
     from .timetable_client import McMasterTimetableClient
-except ImportError:
+    # Import custom exceptions for API error handling <<<< ADDED THIS
+    from .exceptions import (
+        InvalidInputError, TermNotFoundError, CourseNotFoundError, SectionNotFoundError,
+        SeatsAlreadyOpenError, AlreadyPendingError, DatabaseError, ExternalApiError,
+        DataNotReadyError, NotificationSystemError, TimetableCheckerBaseError
+    )
+except ImportError as e: # Combined ImportError handling
     # Use print here as logging might not be configured if import fails early
-    print("Error: Could not import McMasterTimetableClient from timetable_client.py.", file=sys.stderr)
-    print("Ensure 'timetable_client.py' exists and is in the same directory or Python path.", file=sys.stderr)
-    exit(1) # Stop execution if client cannot be imported
+    print(f"Error: Could not import required components: {e}", file=sys.stderr)
+    print("Ensure 'timetable_client.py' and 'exceptions.py' exist and are in the same directory or Python path.", file=sys.stderr)
+    exit(1) # Stop execution if client or exceptions cannot be imported
 
 app = Flask(__name__)
 
@@ -380,7 +386,7 @@ def health_check():
     except Exception as e:
         details["terms_loaded"] = f"error: {type(e).__name__}"
         overall_status = "degraded"
-        log.error(f"Health check: Error checking ...: {e}", exc_info=True)
+        log.error(f"Health check: Error checking terms: {e}", exc_info=True)
     # --- Check 3: Database Connectivity ---
     try:
         db_ok = active_client.storage.check_connection()
@@ -500,6 +506,7 @@ def get_term_courses(term_id):
 
         courses = active_client.get_courses(term_id)
         # Handle case where client might return None if data isn't loaded yet
+        # get_courses returns None if term exists in cache but courses list is None
         if courses is None:
              log.warning(f"Course data requested but not available for term '{term_id}'.")
              return jsonify({"error": f"Course data not available for term '{term_id}'. Check back later."}), 503
@@ -560,21 +567,22 @@ def fetch_course_details(term_id, course_code):
         # Validate course existence within the term before fetching details
         courses_in_term = active_client.get_courses(term_id)
 
-        if courses_in_term is None or not isinstance(courses_in_term, list): # Ensure it's a list
+        if courses_in_term is None: # Check if course list is None (meaning not loaded yet)
              log.warning(f"Course list not ready for term {term_id} during detail request for '{normalized_course_code}'.")
              return jsonify({"error": f"Course list for term '{term_id}' is not ready. Please try again shortly."}), 503
         if normalized_course_code not in courses_in_term:
              log.warning(f"Course code '{normalized_course_code}' not found in term '{term_id}'.")
              return jsonify({"error": f"Course code '{normalized_course_code}' not found in term '{term_id}'."}), 404
 
-        # Fetch details using the normalized code
+        # Fetch details using the fetcher component of the client <<<< Reverted this part
         log.info(f"Fetching details for course '{normalized_course_code}' in term {term_id}.")
-        details = active_client.fetch_course_details(term_id, [normalized_course_code])
+        # Original approach assumed client had a unified fetch method, let's keep that assumption for now
+        # If the client's internal method is fetch_course_details which uses the fetcher:
+        details = active_client.fetcher.fetch_course_details(term_id, [normalized_course_code]) # Using fetcher directly, as before
+
         course_detail_data = details.get(normalized_course_code)
 
         # Check if details were found (handles empty results or API issues for that specific course)
-        # Note: The orchestrator's fetch_course_details is expected to return {} or {course_code: {}}
-        # on API failure or if the course has no sections listed. Check needs to handle this.
         # The current check `if not course_detail_data:` correctly handles {} or {course_code: {}}
         if not course_detail_data:
             log.warning(f"Details requested but not found or empty for '{normalized_course_code}' in term {term_id}.")
@@ -584,7 +592,7 @@ def fetch_course_details(term_id, course_code):
         # log.debug(f"Successfully retrieved details for {normalized_course_code} (Term {term_id}): {course_detail_data}") # Optional debug log
         return jsonify(course_detail_data)
 
-    except Exception as e:
+    except Exception as e: # General exception catch remains
         log.error(f"Error in /terms/{term_id}/courses/{course_code} endpoint: {e}", exc_info=True)
         return jsonify({"error": "An internal error occurred retrieving course details."}), 500
 
@@ -604,141 +612,120 @@ def add_watch_request():
         - section_key: Unique identifier string for the specific lecture/lab/tutorial section.
     Input Validation: Checks for JSON format, required fields, valid email/term/course/section formats,
                      term existence, course existence within the term, and email notification system configuration.
+                     **Uses specific exceptions for error handling.** <<<< Updated this comment
     Responses:
-        - 201 Created: {"message": "Successfully added watch request..."} on success. Location header is not included.
-        - 200 OK: {"message": "Successfully reactivated..."} if request was reactivated.
-        - 400 Bad Request: Invalid JSON, missing fields, invalid data formats, term/course/section not found,
-                           or trying to watch an already open section.
-        - 409 Conflict: If the user already has a pending watch request for the same section resource.
-        - 503 Service Unavailable: If the timetable client or email notification system is not configured/ready.
-        - 500 Internal Server Error: For unexpected errors during processing or database interaction.
+        - 201 Created: {"message": "Successfully added watch request...", "request_id": ...} on new success.
+        - 200 OK: {"message": "Successfully reactivated...", "request_id": ...} if request was reactivated.
+        - 400 Bad Request: Invalid JSON, missing fields, invalid data formats (handled by InvalidInputError),
+                           term/course/section not found (handled by *NotFoundError),
+                           or trying to watch an already open section (handled by SeatsAlreadyOpenError).
+        - 409 Conflict: If the user already has a pending watch request (handled by AlreadyPendingError).
+        - 503 Service Unavailable: If the timetable client or email notification system is not configured/ready,
+                                   or if external API/data is unavailable (handled by DataNotReadyError, ExternalApiError).
+        - 500 Internal Server Error: For unexpected errors during processing or database interaction (handled by DatabaseError or generic Exception).
     Cache: No-store (POST request, set in add_caching_headers).
     """
     active_client = get_client_or_abort()
     if isinstance(active_client, tuple): return active_client
 
+    # --- Pre-flight Check: Email Configuration ---
+    if not EMAIL_PASSWORD or not EMAIL_SENDER:
+        log.error("Attempted to add watch request, but email sender or password is not configured (via config).")
+        return jsonify({"error": "Cannot add watch request: Notification system is not configured correctly."}), 503
+
+    # --- Request Body Validation ---
     if not request.is_json:
         return jsonify({"error": "Invalid request format. JSON payload required."}), 400
 
     data = request.get_json()
-
-    # --- Payload Validation ---
     required_fields = ["email", "term_id", "course_code", "section_key"]
     missing_fields = [field for field in required_fields if field not in data or data[field] is None]
     if missing_fields:
         return jsonify({"error": f"Missing required fields: {', '.join(missing_fields)}"}), 400
 
-    validation_errors = []
-    payload = {} # Store validated/normalized data
-
-    # Validate Email
+    # Basic format validation (more robust validation happens in client)
     email = data.get("email")
-    if not isinstance(email, str) or not is_valid_email(email):
-        validation_errors.append("Invalid or missing 'email' field.")
-    else:
-        payload["email"] = email.lower()
-
-    # Validate Term ID
     term_id = data.get("term_id")
-    if not isinstance(term_id, str) or not term_id.isdigit():
-        validation_errors.append("Invalid or missing 'term_id' field (must be a numeric string).")
-    else:
-        payload["term_id"] = term_id
-
-    # Validate Course Code
     course_code = data.get("course_code")
-    if not isinstance(course_code, str) or not course_code.strip():
-         validation_errors.append("Missing or empty 'course_code' field.")
-    # Basic format check (more lenient now handled by existence check later)
-    elif not re.match(r"^[A-Za-z0-9\s\-]+$", course_code.strip()):
-         validation_errors.append("Invalid characters in 'course_code' field.")
-    else:
-        # Normalize: Uppercase, ensure single space between parts if space exists
-        normalized_code = ' '.join(course_code.strip().upper().split())
-        payload["course_code"] = normalized_code
-
-    # Validate Section Key
     section_key = data.get("section_key")
+
+    # Simple pre-validation before hitting client logic
+    if not isinstance(email, str) or not is_valid_email(email):
+         return jsonify({"error": "Invalid 'email' format."}), 400
+    if not isinstance(term_id, str) or not term_id.isdigit():
+         return jsonify({"error": "Invalid 'term_id' format (must be numeric string)."}), 400
+    if not isinstance(course_code, str) or not course_code.strip():
+         return jsonify({"error": "Missing or empty 'course_code'."}), 400
     if not isinstance(section_key, str) or not section_key.strip():
-        validation_errors.append("Missing or empty 'section_key' field.")
-    # Example: Check if it's numeric - adapt if format is different
-    # elif not re.match(r"^\d+$", section_key.strip()):
-    #     validation_errors.append("Invalid section key format (expected numeric).")
-    else:
-        payload["section_key"] = section_key.strip()
+        return jsonify({"error": "Missing or empty 'section_key'."}), 400
 
-    if validation_errors:
-         log.warning(f"Watch request failed validation for {request.remote_addr}. Errors: {validation_errors}")
-         return jsonify({"error": "Invalid input provided.", "details": validation_errors}), 400
+    # Normalize course code for client
+    normalized_course_code = ' '.join(course_code.strip().upper().split())
 
-    log.info(f"Processing watch request from {payload.get('email', 'N/A')} for {payload.get('course_code','N/A')} [{payload.get('section_key','N/A')}] in term {payload.get('term_id','N/A')}")
+    log.info(f"Processing watch request from {email} for {normalized_course_code} [{section_key}] in term {term_id}")
 
-    # --- Interaction with Client ---
+    # --- Call Client Method with Exception Handling --- <<<< REPLACED THIS SECTION
     try:
-        # Check if email system is configured (essential for this endpoint)
-        if not EMAIL_PASSWORD or not EMAIL_SENDER:
-            log.error("Attempted to add watch request, but email sender or password is not configured (via config).")
-            return jsonify({"error": "Cannot add watch request: Notification system is not configured correctly."}), 503
-
-        # Further validation requiring client data (term/course existence)
-        available_terms = {t['id'] for t in active_client.get_terms()}
-        if payload["term_id"] not in available_terms:
-            # Use 400 because the client provided an invalid term ID in the request body
-            return jsonify({"error": f"Term ID '{payload['term_id']}' not found."}), 400
-
-        courses_in_term = active_client.get_courses(payload["term_id"])
-        if courses_in_term is None or not isinstance(courses_in_term, list): # Ensure it's a list
-            log.warning(f"Watch request for term {payload['term_id']} failed: course list not yet loaded.")
-            # Use 503 because the server state (course list) isn't ready
-            return jsonify({"error": f"Course list for term '{payload['term_id']}' is not ready. Please try again shortly."}), 503
-        if payload["course_code"] not in courses_in_term:
-             # Use 400 because the client provided an invalid course code for the given term
-            return jsonify({"error": f"Course code '{payload['course_code']}' not found in term '{payload['term_id']}'."}), 400
-
-        # Delegate the final validation (section existence, seat count) and DB insertion to the client
-        # NOTE: Relies on the client's `add_course_watch_request` returning (True, msg) for *both* new and reactivated requests.
-        success, message = active_client.add_course_watch_request(
-            email=payload["email"],
-            term_id=payload["term_id"],
-            course_code=payload["course_code"],
-            section_key=payload["section_key"]
+        # Client method now returns (message, request_id) on success
+        # or raises specific exceptions on failure.
+        success_message, request_id = active_client.add_course_watch_request(
+            email=email.lower(), # Normalize email
+            term_id=term_id,
+            course_code=normalized_course_code,
+            section_key=section_key.strip() # Normalize section key
         )
 
-        # Handle response from the client
-        if success:
-            log.info(f"Successfully processed watch request for {payload['email']} - {payload['course_code']} ({payload['section_key']}). Message: {message}")
-            if "reactivated" in message.lower():
-                # Existing request was found and reactivated
-                return jsonify({"message": message}), 200 # OK
-            else:
-                # New request was added
-                return jsonify({"message": message}), 201 # Created
+        log.info(f"Successfully processed watch request. Client message: {success_message}")
+
+        # Determine status code based on success message content
+        if "reactivated" in success_message.lower():
+            status_code = 200 # OK for reactivation
         else:
-            # Map client error messages to appropriate HTTP status codes
-            status_code = 400 # Default to Bad Request for client-side validation failures
-            if "already has an active pending watch request" in message:
-                 status_code = 409 # Conflict
-            elif "already has" in message and "open seats" in message:
-                status_code = 400 # Bad Request (logic error by user trying to watch open section)
-            elif "Section key" in message and "not found for course" in message: # Client indicating invalid section *key*
-                status_code = 400 # Bad Request (invalid input)
-            elif "Database error" in message:
-                 status_code = 500 # Internal Server Error (error talking to repository)
-            elif "Could not retrieve details for course" in message: # Error fetching live data from API
-                 status_code = 503 # Service temporarily unavailable (API issue downstream)
-            elif "Invalid Term ID" in message: # Should be caught earlier, but handle defensively
-                status_code = 400 # Bad request (invalid input)
-            elif "Course code" in message and "not found in term" in message: # Should be caught earlier
-                status_code = 400 # Bad request (invalid input)
-            elif "Invalid email format" in message: # Should be caught earlier
-                status_code = 400 # Bad request (invalid input)
+            status_code = 201 # Created for new request
 
-            log.warning(f"Failed processing watch request for {payload['email']}, {payload['course_code']}, {payload['section_key']}: {message} (API Status Code: {status_code})")
-            return jsonify({"error": message}), status_code
+        return jsonify({"message": success_message, "request_id": request_id}), status_code
 
+    # --- Specific Exception Handling ---
+    except InvalidInputError as e:
+        log.warning(f"Watch request failed (InvalidInputError): {e}")
+        return jsonify({"error": str(e)}), 400
+    except TermNotFoundError as e:
+        log.warning(f"Watch request failed (TermNotFoundError): {e}")
+        return jsonify({"error": str(e)}), 400 # Term ID provided by user was invalid
+    except CourseNotFoundError as e:
+        log.warning(f"Watch request failed (CourseNotFoundError): {e}")
+        return jsonify({"error": str(e)}), 400 # Course code provided by user was invalid for term
+    except SectionNotFoundError as e:
+        log.warning(f"Watch request failed (SectionNotFoundError): {e}")
+        return jsonify({"error": str(e)}), 400 # Section key provided by user was invalid for course/term
+    except SeatsAlreadyOpenError as e:
+        log.warning(f"Watch request failed (SeatsAlreadyOpenError): {e}")
+        return jsonify({"error": str(e)}), 400 # User trying to watch an open section
+    except AlreadyPendingError as e:
+        log.warning(f"Watch request failed (AlreadyPendingError): {e}")
+        response_body = {"error": str(e)}
+        if hasattr(e, 'request_id') and e.request_id:
+            response_body["request_id"] = e.request_id
+        return jsonify(response_body), 409 # Conflict
+    except DataNotReadyError as e:
+         log.warning(f"Watch request failed temporarily (DataNotReadyError): {e}")
+         return jsonify({"error": str(e)}), 503 # Service unavailable (server cache not ready)
+    except ExternalApiError as e:
+        log.error(f"Watch request failed due to external API issue (ExternalApiError): {e}", exc_info=getattr(e, 'original_exception', False))
+        # Provide a slightly more user-friendly message for external issues
+        return jsonify({"error": "Could not complete request due to an issue with the upstream service. Please try again later.", "details": str(e)}), 503
+    except DatabaseError as e:
+        log.error(f"Watch request failed due to database issue (DatabaseError): {e}", exc_info=getattr(e, 'original_exception', False))
+        return jsonify({"error": "A database error occurred while processing the request."}), 500
+    except TimetableCheckerBaseError as e:
+        # Catch other custom app errors
+        log.error(f"Watch request failed due to application error: {e}", exc_info=True)
+        return jsonify({"error": "An application error occurred.", "details": str(e)}), 500
     except Exception as e:
-        log.error(f"Error in /watch endpoint during client call or validation: {e}", exc_info=True)
-        return jsonify({"error": "An internal error occurred while processing the watch request."}), 500
+        # Catch-all for truly unexpected errors
+        log.exception(f"Unexpected error during /watch request processing") # Use log.exception
+        return jsonify({"error": "An unexpected internal error occurred."}), 500
+
 
 # --- Endpoint for Log Level (Protected) ---
 @app.route('/log/level', methods=['PUT'])
@@ -899,9 +886,12 @@ def handle_conflict(error):
     """Handles 409 Conflict errors, returning specific JSON if provided, else generic."""
     response = getattr(error, 'response', None)
     if isinstance(response, app.response_class):
-        return response
+        return response # Pass through potentially more detailed JSON from view
     description = getattr(error, 'description', 'Conflict')
     log.warning(f"Returning 409 Conflict for {request.path}: {description}")
+    # Check if description is already a dict (e.g., from abort(409, description={...}))
+    if isinstance(description, dict):
+        return jsonify(description), 409
     return jsonify(error=description), 409
 
 @app.errorhandler(429)
@@ -923,9 +913,12 @@ def handle_service_unavailable(error):
     """Handles 503 Service Unavailable errors, returning specific JSON if provided, else generic."""
     response = getattr(error, 'response', None)
     if isinstance(response, app.response_class):
-        return response
+        return response # Pass through potentially more detailed JSON from view
     description = getattr(error, 'description', 'The service is temporarily unavailable. Please try again later.')
     log.error(f"Returning 503 Service Unavailable for {request.path}: {description}")
+    # Check if description is already a dict
+    if isinstance(description, dict):
+        return jsonify(description), 503
     return jsonify(error=description), 503
 
 # Catch-all handler for any otherwise unhandled exceptions

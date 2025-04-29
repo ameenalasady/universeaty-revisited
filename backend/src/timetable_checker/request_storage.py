@@ -1,4 +1,4 @@
-# request_storage.py
+# src/timetable_checker/request_storage.py
 
 import sqlite3
 import os
@@ -8,10 +8,8 @@ from typing import List, Dict, Any, Tuple, Optional
 import logging
 import time
 
-try:
-    from .config import DATABASE_PATH
-except ImportError:
-     from config import DATABASE_PATH
+from .config import DATABASE_PATH
+from .exceptions import AlreadyPendingError, DatabaseError
 
 log = logging.getLogger(__name__)
 
@@ -128,15 +126,14 @@ class RequestStorage:
                     except sqlite3.Error as close_err:
                         log.error(f"Error closing DB connection during health check: {close_err}")
 
-
-    def add_or_update_request(self, email: str, term_id: str, course_code: str, section_key: str, section_display: str) -> Tuple[bool, str, Optional[int]]:
+    def add_or_update_request(self, email: str, term_id: str, course_code: str, section_key: str, section_display: str) -> Tuple[str, int]:
         """
         Adds a new watch request or reactivates an existing one in storage.
 
         Checks for an existing request for the same email, term, and section key.
-        If a PENDING request exists, returns failure with a message.
-        If a non-PENDING request exists, updates its status to PENDING and returns success.
-        If no request exists, inserts a new PENDING request and returns success.
+        If a PENDING request exists, raises AlreadyPendingError.
+        If a non-PENDING request exists, updates its status to PENDING and returns success message + ID.
+        If no request exists, inserts a new PENDING request and returns success message + ID.
 
         Args:
             email: The user's email address.
@@ -146,8 +143,11 @@ class RequestStorage:
             section_display: A user-friendly name for the section (e.g., "LEC C01").
 
         Returns:
-            A tuple: (bool success, str message, Optional[int] request_id).
-            request_id is None on failure or if it was an existing pending request that wasn't reactivated.
+            A tuple: (str message, int request_id) on success.
+
+        Raises:
+            AlreadyPendingError: If an active pending request already exists.
+            DatabaseError: If any database operation fails.
         """
         with self.db_lock:
             conn = None
@@ -168,11 +168,11 @@ class RequestStorage:
                     existing_status = existing_request['status']
 
                     if existing_status == self.STATUS_PENDING:
-                        # Already pending, do nothing
+                        # Already pending, raise specific error
                         msg = f"You already have an active pending watch request (ID: {existing_id}) for {course_code} {section_display}."
-                        log.warning(f"Storage: Add/Update blocked (already pending): {msg}")
+                        log.warning(f"Storage: Add/Update failed: {msg}")
                         conn.close()
-                        return False, msg, existing_id # Return ID even for existing pending
+                        raise AlreadyPendingError(course_code, section_display, existing_id, msg) # RAISE EXCEPTION
 
                     else:
                         # Found existing but non-pending (notified, error, etc.), reactivate it
@@ -188,7 +188,7 @@ class RequestStorage:
                         msg = f"Successfully reactivated your previous watch request (ID: {existing_id}) for {course_code} {section_display}."
                         log.info(f"Storage: Request reactivated: {msg}")
                         conn.close()
-                        return True, msg, existing_id
+                        return msg, existing_id # Return success tuple
                 else:
                     # No existing request found, insert a new one as pending
                     log.info(f"Storage: No existing request found. Inserting new pending request for {email}, {term_id}, {section_key}.")
@@ -198,20 +198,23 @@ class RequestStorage:
                     )
                     conn.commit()
                     request_id = cursor.lastrowid
+                    if request_id is None: # Should not happen with autoincrement but check defensively
+                         raise DatabaseError("Failed to retrieve last inserted row ID.")
                     msg = f"Successfully added new watch request (ID: {request_id}) for {course_code} {section_display}."
                     log.info(f"Storage: New request added: {msg}")
                     conn.close()
-                    return True, msg, request_id
+                    return msg, request_id # Return success tuple
 
             except sqlite3.Error as e:
                 msg = f"Database error during watch request add/update: {e}"
                 log.error(f"Storage: Operation failed: {msg}", exc_info=True)
                 if conn:
                     try:
-                        conn.rollback()
+                        conn.rollback() # Attempt rollback on error
                     except sqlite3.Error as rb_err:
                          log.error(f"Storage: Error during rollback: {rb_err}")
-                return False, msg, None
+                # Raise specific DatabaseError, passing original exception
+                raise DatabaseError(message=msg, original_exception=e) # RAISE EXCEPTION
             finally:
                 if conn:
                     try:
@@ -219,6 +222,7 @@ class RequestStorage:
                     except sqlite3.Error as close_err:
                         log.error(f"Storage: Error closing database connection after add/update: {close_err}")
 
+    # --- get_pending_requests ---
     def get_pending_requests(self) -> List[Dict[str, Any]]:
         """
         Retrieves all watch requests with a 'pending' status from storage.
@@ -242,8 +246,9 @@ class RequestStorage:
                 conn.close()
                 log.debug(f"Storage: Retrieved {len(pending_requests)} pending requests.")
             except sqlite3.Error as e:
+                # Log error but return empty list to allow check loop to continue gracefully
                 log.error(f"Storage: Error fetching pending requests: {e}", exc_info=True)
-                # Return empty list on error so the check loop doesn't crash
+                pending_requests = [] # Ensure empty list on error
             finally:
                 if conn:
                     try:
@@ -253,13 +258,14 @@ class RequestStorage:
 
         return pending_requests
 
+    # --- update_request_statuses ---
     def update_request_statuses(self, notified_ids: List[int], error_ids: List[int], checked_ids: List[int]):
         """
         Updates the status and timestamp(s) for lists of requests in storage.
 
         Args:
             notified_ids: List of request IDs that were successfully notified.
-            error_ids: List of request IDs for which the section was not found (mark as error/cancelled).
+            error_ids: List of request IDs for which the section was not found (mark as error).
             checked_ids: List of all pending request IDs that were processed during the check cycle
                          (used to update last_checked_at for those remaining pending).
         """
@@ -274,7 +280,10 @@ class RequestStorage:
             try:
                 conn = sqlite3.connect(self.db_path, check_same_thread=False)
                 cursor = conn.cursor()
-                now_iso = datetime.now().isoformat()
+                now_iso = datetime.now().isoformat() # Consistent timestamp for the batch
+
+                # Use transactions for atomicity
+                cursor.execute("BEGIN TRANSACTION")
 
                 # Update status for successfully notified requests
                 if notified_ids:
@@ -286,7 +295,7 @@ class RequestStorage:
                         (self.STATUS_NOTIFIED, now_iso, now_iso, *unique_notified_ids)
                     )
 
-                # Update status for requests where the section disappeared
+                # Update status for requests where the section disappeared (Error status)
                 if error_ids:
                      unique_error_ids = list(set(error_ids))
                      log.info(f"Storage: Updating status to '{self.STATUS_ERROR}' for IDs: {unique_error_ids}")
@@ -296,27 +305,34 @@ class RequestStorage:
                          (self.STATUS_ERROR, now_iso, *unique_error_ids)
                      )
 
-                # Update 'last_checked_at' for pending requests that were checked
-                # We only update ones that are still pending *after* notifying/erroring some.
+                # Update 'last_checked_at' for pending requests that were checked but not notified/errored
                 processed_ids = set(notified_ids) | set(error_ids)
-                remaining_checked_ids = [id for id in checked_ids if id not in processed_ids]
+                # Ensure checked_ids contains only integers
+                valid_checked_ids = [id_ for id_ in checked_ids if isinstance(id_, int)]
+                remaining_checked_ids = [id_ for id_ in valid_checked_ids if id_ not in processed_ids]
+
                 if remaining_checked_ids:
                      log.debug(f"Storage: Updating last_checked_at for {len(remaining_checked_ids)} still-pending requests.")
                      placeholders = ','.join('?' * len(remaining_checked_ids))
+                     # Double-check they are still pending before updating last_checked_at
                      cursor.execute(
-                         f"UPDATE {self.WATCH_REQUESTS_TABLE} SET last_checked_at = ? WHERE id IN ({placeholders}) AND status = ?", # Crucially AND status = PENDING
+                         f"UPDATE {self.WATCH_REQUESTS_TABLE} SET last_checked_at = ? WHERE id IN ({placeholders}) AND status = ?",
                          (now_iso, *remaining_checked_ids, self.STATUS_PENDING)
                      )
 
-                conn.commit()
+                conn.commit() # Commit the transaction
                 log.info(f"Storage: Status updates committed.")
+
             except sqlite3.Error as e:
                 log.error(f"Storage: Database error updating watch request statuses: {e}", exc_info=True)
                 if conn:
                     try:
-                        conn.rollback()
+                        conn.rollback() # Rollback transaction on error
+                        log.warning("Storage: Status update transaction rolled back.")
                     except sqlite3.Error as rb_err:
                          log.error(f"Storage: Error during rollback on update failure: {rb_err}")
+                # Consider if this should raise DatabaseError - depends if caller needs to know
+                # For background task, logging might be sufficient. Let's log for now.
             finally:
                 if conn:
                     try:

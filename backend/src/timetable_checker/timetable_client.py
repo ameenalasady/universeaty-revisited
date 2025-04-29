@@ -1,27 +1,31 @@
-# timetable_client.py
+# src/timetable_checker/timetable_client.py
 
 import time
 import threading
 import re
 from collections import defaultdict
 from typing import Optional, List, Dict, Tuple, Any
+import requests
 
+# Config and Utils
 from .config import (
-    DATABASE_PATH,
-    EMAIL_SENDER,
-    EMAIL_PASSWORD,
-    DEFAULT_CHECK_INTERVAL_SECONDS,
-    DEFAULT_UPDATE_INTERVAL_SECONDS,
-    BASE_URL_MYTIMETABLE,
+    DATABASE_PATH, EMAIL_SENDER, EMAIL_PASSWORD, DEFAULT_CHECK_INTERVAL_SECONDS,
+    DEFAULT_UPDATE_INTERVAL_SECONDS, BASE_URL_MYTIMETABLE,
 )
-from . import logging_config # This should set up root logger
+from . import logging_config
 from . import email_utils
 from .timetable_fetcher import TimetableFetcher, SectionInfo, TermInfo
 from .request_storage import RequestStorage
 
+# Import custom exceptions
+from .exceptions import (
+    InvalidInputError, TermNotFoundError, CourseNotFoundError, SectionNotFoundError,
+    SeatsAlreadyOpenError, AlreadyPendingError, DatabaseError, ExternalApiError,
+    DataNotReadyError
+)
 
 import logging
-log = logging.getLogger(__name__) # Get logger after logging_config is imported
+log = logging.getLogger(__name__)
 
 # --- McMaster Timetable Orchestrator Client Class ---
 class McMasterTimetableClient:
@@ -83,10 +87,14 @@ class McMasterTimetableClient:
         log.info("Fetching initial terms...")
         start_time = time.time()
         # Use the fetcher to fetch, then populate internal cache
-        fetched_terms = self.fetcher.fetch_terms()
-        with self.terms_lock:
-            self.terms = fetched_terms
-        log.info(f"Found {len(self.terms)} terms. (Took {time.time() - start_time:.2f}s)")
+        try:
+            fetched_terms = self.fetcher.fetch_terms()
+            with self.terms_lock:
+                self.terms = fetched_terms
+            log.info(f"Found {len(self.terms)} terms. (Took {time.time() - start_time:.2f}s)")
+        except Exception as e:
+             log.exception("Failed to fetch initial terms during initialization.")
+             # Allow to continue, but terms list will be empty
 
         log.info("Fetching initial course lists for all terms (this may take a moment)...")
         start_time = time.time()
@@ -129,20 +137,21 @@ class McMasterTimetableClient:
 
         Returns:
             A list of course codes or a dictionary of term IDs to course code lists.
-            Returns an empty list or dictionary if data is not available.
+            Returns an empty list or dictionary if data is not available. Returns None if term_id specified but not found.
         """
         with self.courses_lock:
             if term_id:
-                return self.courses.get(term_id, []).copy()
+                # Return None if term_id is not a key, vs empty list if key exists but list is empty
+                return self.courses.get(term_id, []).copy() if term_id in self.courses else None
             else:
                 # Return a deep copy of the dictionary
                 return {k: v.copy() for k, v in self.courses.items()}
 
-    def add_course_watch_request(self, email: str, term_id: str, course_code: str, section_key: str) -> Tuple[bool, str]:
+    def add_course_watch_request(self, email: str, term_id: str, course_code: str, section_key: str) -> Tuple[str, int]:
         """
         Validates and adds/updates a request to watch a specific course section.
 
-        Performs validation using cached data and API calls, then uses the storage
+        Performs validation using cached data and live API calls, then uses storage
         to save the request.
 
         Args:
@@ -152,97 +161,128 @@ class McMasterTimetableClient:
             section_key: The unique identifier for the specific section (e.g., "LEC_12345_C01").
 
         Returns:
-            A tuple: (bool success, str message) indicating the outcome.
-        """
-        log.info(f"Attempting to add/update watch request: Email={email}, Term={term_id}, Course={course_code}, SectionKey={section_key}")
+            A tuple: (str message, int request_id) indicating successful outcome.
 
-        # --- Validation using internal caches ---
+        Raises:
+            InvalidInputError: If email format is invalid.
+            TermNotFoundError: If term_id is not found in cached terms.
+            DataNotReadyError: If course list for the term hasn't been loaded yet.
+            CourseNotFoundError: If course_code is not found in the specified term's cached courses.
+            ExternalApiError: If fetching live course details fails.
+            SectionNotFoundError: If the section_key is not found in the live details.
+            SeatsAlreadyOpenError: If the target section already has open seats.
+            AlreadyPendingError: If storage indicates an existing pending request.
+            DatabaseError: If storage interaction fails.
+            TimetableCheckerBaseError: For other unexpected errors during the process.
+        """
+        log.info(f"Processing watch request: Email={email}, Term={term_id}, Course={course_code}, SectionKey={section_key}")
+
+        # --- Basic Input Validation ---
         if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
             msg = "Invalid email format provided."
-            log.warning(f"Watch request failed: {msg} (Email: {email})")
-            return False, msg
+            log.warning(f"Watch request failed validation: {msg} (Email: {email})")
+            raise InvalidInputError(msg)
 
-        # 2. Term Validation
+        # --- Validation using internal caches ---
         with self.terms_lock:
             if not any(term['id'] == term_id for term in self.terms):
-                 msg = f"Invalid Term ID '{term_id}'. Check available terms."
-                 log.warning(f"Watch request failed: {msg}")
-                 return False, msg
+                 log.warning(f"Watch request failed: Term ID '{term_id}' not found in cache.")
+                 raise TermNotFoundError(term_id) # Raise specific exception
 
         with self.courses_lock:
              term_courses = self.courses.get(term_id)
-             if term_courses is None:
-                 msg = f"Course list for term '{term_id}' not loaded. Please try again later."
+             if term_courses is None: # Check if key exists at all
+                 msg = f"Course list for term '{term_id}' not loaded yet or term is invalid."
                  log.warning(f"Watch request failed: {msg}")
-                 return False, msg
+                 raise DataNotReadyError(f"Course list for term '{term_id}'") # Raise specific exception
              if course_code not in term_courses:
-                 msg = f"Course code '{course_code}' not found in term '{term_id}'. Check the course code."
-                 log.warning(f"Watch request failed: {msg}")
-                 return False, msg
+                 log.warning(f"Watch request failed: Course code '{course_code}' not found in term '{term_id}' cache.")
+                 raise CourseNotFoundError(course_code, term_id) # Raise specific exception
 
         # --- Validation requiring live API data ---
         log.info(f"Fetching live details for validation: Term={term_id}, Course={course_code}")
-        details = self.fetcher.fetch_course_details(term_id, [course_code])
+        details: Dict[str, Dict[str, List[SectionInfo]]] = {}
+        try:
+            # Fetcher might return empty dict or raise its own errors (like requests.RequestException)
+            details = self.fetcher.fetch_course_details(term_id, [course_code])
+        except requests.exceptions.RequestException as req_err:
+            msg = f"Network error fetching live details for {course_code} (Term {term_id}): {req_err}"
+            log.error(msg)
+            raise ExternalApiError(msg, original_exception=req_err)
+        except Exception as fetch_err: # Catch other potential fetcher errors
+            msg = f"Unexpected error fetching live details for {course_code} (Term {term_id}): {fetch_err}"
+            log.error(msg, exc_info=True)
+            raise ExternalApiError(msg, original_exception=fetch_err)
 
         target_section: Optional[SectionInfo] = None
         section_display_name = "Unknown Section" # Default for DB storage
 
-        if course_code not in details or not details[course_code]:
-            msg = f"Could not retrieve live details for course '{course_code}' in term '{term_id}'. It might not be offered or API error."
+        # Check if details were retrieved and the course key exists
+        if not details or course_code not in details or not details[course_code]:
+            # This case means the fetcher succeeded (no exception) but returned no data for this course
+            msg = f"Could not retrieve live details for course '{course_code}' in term '{term_id}'. It might not be offered currently."
             log.warning(f"Watch request failed: {msg}")
-            return False, msg
+            # Treat as if the course wasn't found at this moment, though it was in cache. Could be temporary.
+            # Using ExternalApiError implies a temporary issue with the source.
+            raise ExternalApiError(msg)
 
         # Find the specific section using its unique key in the fetched details
         course_details = details[course_code]
-        for block_type, sections_list in course_details.items(): # Corrected variable name
+        for block_type, sections_list in course_details.items():
             for section in sections_list:
                 if section['key'] == section_key:
                     target_section = section
-                    section_display_name = f"{block_type} {section['section']}"
+                    section_display_name = f"{block_type} {section['section']}" # e.g., LEC C01
                     break
             if target_section:
                 break
 
         if target_section is None:
-            msg = f"Section key '{section_key}' not found for course '{course_code}' in term '{term_id}'. It might be invalid or not offered."
-            log.warning(f"Watch request failed: {msg}")
-            return False, msg
+            log.warning(f"Watch request failed: Section key '{section_key}' not found in live details for '{course_code}' in term '{term_id}'.")
+            raise SectionNotFoundError(section_key, course_code, term_id) # Raise specific exception
 
         # Check if the section is already open
         if target_section['open_seats'] > 0:
-            msg = f"Section {section_display_name} for {course_code} already has {target_section['open_seats']} open seats. No watch needed."
-            log.warning(f"Watch request failed: {msg}")
-            return False, msg
+            log.warning(f"Watch request failed: Section {section_display_name} for {course_code} already has {target_section['open_seats']} open seats.")
+            raise SeatsAlreadyOpenError(course_code, section_display_name, target_section['open_seats']) # Raise specific exception
 
         # --- Save or Update Request via Storage ---
-        log.info(f"Validation successful. Proceeding to save/update request via storage.")
-        success, message, request_id = self.storage.add_or_update_request(
-            email=email,
-            term_id=term_id,
-            course_code=course_code,
-            section_key=section_key,
-            section_display=section_display_name # Use the display name found during validation
-        )
+        # Storage now raises exceptions on failure or returns (message, id) on success
+        log.info(f"Validation successful. Calling storage add_or_update_request.")
+        try:
+            # add_or_update_request now returns (message, request_id) on success
+            # or raises AlreadyPendingError / DatabaseError
+            success_message, request_id = self.storage.add_or_update_request(
+                email=email,
+                term_id=term_id,
+                course_code=course_code,
+                section_key=section_key,
+                section_display=section_display_name
+            )
+            log.info(f"Request processed successfully by storage. Message: '{success_message}', ID: {request_id}")
+            return success_message, request_id # Return the success tuple
 
-        # The storage layer handles the logic of whether to add or reactivate
-        if success and request_id:
-            log.info(f"Request processed by storage. Success: {success}, Message: '{message}', ID: {request_id}")
-        else:
-             # Note: success can be True even if request_id is None if it was an existing PENDING request
-            log.info(f"Request processed by storage. Success: {success}, Message: '{message}'.")
-
-
-        return success, message
-
+        except (AlreadyPendingError, DatabaseError) as db_err:
+            # Log is done inside storage, just re-raise
+            log.warning(f"Watch request failed due to storage error: {type(db_err).__name__}")
+            raise db_err # Re-raise the specific error from storage
+        except Exception as unexpected_err:
+            # Catch any other unexpected errors during storage interaction
+            log.exception("Unexpected error during storage interaction for watch request.")
+            raise DatabaseError("An unexpected error occurred interacting with storage.", original_exception=unexpected_err)
 
     def _check_watched_courses(self):
         """
         Checks all pending watch requests using the data fetcher and updates storage.
-        Called by the background check loop.
+        Called by the background check loop. Handles errors gracefully.
         """
         log.info("Starting periodic check for watched courses...")
-        # Get all pending requests from Storage
-        pending_requests = self.storage.get_pending_requests()
+        pending_requests = []
+        try:
+            pending_requests = self.storage.get_pending_requests()
+        except Exception as e: # Catch potential errors getting requests
+            log.exception("Failed to retrieve pending requests from storage during check.")
+            return # Abort this check cycle if we can't get requests
 
         if not pending_requests:
             log.info("No pending course watch requests found.")
@@ -256,32 +296,53 @@ class McMasterTimetableClient:
             requests_by_term[req['term_id']].append(req)
 
         notified_ids: List[int] = [] # IDs of requests where notification was sent successfully
-        error_ids: List[int] = []    # IDs of requests where the section disappeared
+        error_ids: List[int] = []    # IDs of requests where the section disappeared or other fetch error
         # Keep track of all IDs that were pending *before* this check cycle started
-        all_pending_ids_this_cycle = [req['id'] for req in pending_requests]
+        all_pending_ids_this_cycle = [req['id'] for req in pending_requests if isinstance(req.get('id'), int)] # Ensure IDs are ints
 
         # Process requests term by term
         for term_id, term_requests in requests_by_term.items():
             unique_course_codes = sorted(list(set(req['course_code'] for req in term_requests)))
+            if not unique_course_codes: continue
 
             log.info(f"Checking details for Term={term_id} ({len(unique_course_codes)} unique courses, {len(term_requests)} requests)...")
             time.sleep(0.5) # Brief pause before API call
 
-            # Fetch details for all relevant courses in this term in one go using fetcher
-            term_course_details = self.fetcher.fetch_course_details(term_id, unique_course_codes)
+            term_course_details: Dict[str, Dict[str, List[SectionInfo]]] = {}
+            fetch_error_occurred = False
+            try:
+                # Fetch details for all relevant courses in this term in one go using fetcher
+                term_course_details = self.fetcher.fetch_course_details(term_id, unique_course_codes)
+            except requests.exceptions.RequestException as req_err:
+                log.error(f"Network error fetching batch details for Term {term_id}: {req_err}")
+                fetch_error_occurred = True
+                # Mark all requests for this term in this cycle as 'error' temporarily? Or just skip?
+                # Let's skip them for this cycle, they will be retried next time. Logged above.
+                continue # Skip processing requests for this term if the batch fetch failed
+            except Exception as e:
+                log.exception(f"Unexpected error fetching batch details for Term {term_id}")
+                fetch_error_occurred = True
+                continue # Skip processing requests for this term
 
-            # Check each individual request against the fetched details
+            # Check each individual request against the fetched details for the term
             for req in term_requests:
-                req_id = req['id']
+                req_id = req.get('id')
+                # Ensure request ID is valid before proceeding
+                if not isinstance(req_id, int):
+                     log.warning(f"Skipping request with invalid ID in term {term_id}: {req}")
+                     continue
+
                 course_code = req['course_code']
                 section_key = req['section_key']
                 section_display = req['section_display']
                 email = req['email']
 
                 # Verify details for this specific course were successfully retrieved by the fetcher
+                # If fetch_error_occurred is True, this loop shouldn't even be running for the term
                 if course_code not in term_course_details or not term_course_details[course_code]:
-                    log.warning(f"Could not get details for watched course {course_code} (Term {term_id}) during batch fetch. Request ID: {req_id}. Will retry next cycle.")
-                    # This request remains pending, its last_checked_at will be updated later if in all_pending_ids_this_cycle
+                    log.warning(f"Details for watched course {course_code} (Term {term_id}) missing from batch fetch result. Request ID: {req_id}. Marking as error for this cycle.")
+                    # Section technically 'not found' in the data we got back. Mark as error.
+                    error_ids.append(req_id)
                     continue
 
                 # Check if the specific section still exists and get its seat count
@@ -289,7 +350,7 @@ class McMasterTimetableClient:
                 section_exists = False
                 current_open_seats = -1 # Default if not found
                 # Iterate through all block types (LEC, LAB, TUT, etc.)
-                for block_type, sections_list in course_sections.items(): # Corrected variable name
+                for block_type, sections_list in course_sections.items():
                     # Iterate through sections within that block type
                     for section in sections_list:
                         if section['key'] == section_key:
@@ -305,7 +366,7 @@ class McMasterTimetableClient:
 
                 # Check if seats have opened up
                 if current_open_seats > 0:
-                    log.info(f"Open seats found for {course_code} {section_display} ({section_key})! Seats: {current_open_seats}. Notifying {email}.")
+                    log.info(f"Open seats found for {course_code} {section_display} ({section_key})! Seats: {current_open_seats}. Notifying {email} (Request ID: {req_id}).")
 
                     # Prepare email notification
                     term_name = f"Term ID {term_id}" # Default term name
@@ -313,35 +374,58 @@ class McMasterTimetableClient:
                         term_info = next((t for t in self.terms if t['id'] == term_id), None)
                         if term_info: term_name = term_info['name']
 
-                    email_content = email_utils.create_notification_email(
-                        course_code=course_code,
-                        term_name=term_name,
-                        term_id=term_id,
-                        section_display=section_display,
-                        section_key=section_key,
-                        open_seats=current_open_seats,
-                        request_id=req_id
-                    )
+                    email_content = None
+                    try:
+                        email_content = email_utils.create_notification_email(
+                            course_code=course_code,
+                            term_name=term_name,
+                            term_id=term_id,
+                            section_display=section_display,
+                            section_key=section_key,
+                            open_seats=current_open_seats,
+                            request_id=req_id
+                        )
+                    except Exception as email_gen_err:
+                         log.exception(f"Error generating email content for request ID {req_id}")
+                         # Don't mark as notified if content failed. Will retry next cycle.
+                         continue
 
                     if email_content:
                         subject, html_body = email_content # Unpack only if successful
                         # Use the email_utils module for sending
-                        if email_utils.send_email(email, subject, html_body=html_body):
+                        email_sent = False
+                        try:
+                            email_sent = email_utils.send_email(email, subject, html_body=html_body)
+                        except Exception as email_send_err:
+                            log.exception(f"Error sending notification email for request ID {req_id}")
+                            # Don't mark as notified if sending failed. Will retry next cycle.
+                            continue
+
+                        if email_sent:
                             notified_ids.append(req_id) # Mark for DB update as notified
                         else:
-                            log.error(f"Failed to send notification email for request ID {req_id}. It will remain pending and retry next cycle.")
+                            log.error(f"Failed to send notification email for request ID {req_id} (send_email returned False). It will remain pending.")
                             # Do NOT add to notified_ids if email failed to send
                     else:
-                        log.error(f"Failed to generate email content for request ID {req_id}. Jinja error? Template missing? It will remain pending.")
+                        log.error(f"Email content generation failed for request ID {req_id}. It will remain pending.")
                         # Do NOT add to notified_ids if email content generation failed
+
+                # else: # Section exists but seats are not open (current_open_seats <= 0)
+                     # log.debug(f"Seats still closed for {course_code} {section_display} ({section_key}). Request ID: {req_id}.")
+                     # No action needed, last_checked_at will be updated below.
+                     # Pass
 
         # Update database statuses in bulk using the Storage component
         if notified_ids or error_ids or all_pending_ids_this_cycle:
-             self.storage.update_request_statuses(
-                 notified_ids=notified_ids,
-                 error_ids=error_ids,
-                 checked_ids=all_pending_ids_this_cycle # Pass all IDs that were potentially checked
-             )
+             try:
+                 self.storage.update_request_statuses(
+                     notified_ids=notified_ids,
+                     error_ids=error_ids,
+                     checked_ids=all_pending_ids_this_cycle # Pass all IDs that were potentially checked
+                 )
+             except Exception as e:
+                 log.exception("Failed to update request statuses in storage after check cycle.")
+                 # Errors during status update are logged, but the cycle continues.
 
         log.info("Finished periodic check for watched courses.")
 
@@ -351,16 +435,6 @@ class McMasterTimetableClient:
     def start_periodic_tasks(self, update_interval: int, check_interval: int):
         """
         Initializes and starts the background threads for periodic tasks.
-
-        One thread handles less frequent updates of term and course lists using
-        the data fetcher.
-        Another thread handles more frequent checks of watched courses by
-        getting requests from storage, checking data fetcher, and updating storage.
-        Threads are set as daemons so they don't block program exit.
-
-        Args:
-            update_interval: Interval (seconds) for refreshing term/course lists.
-            check_interval: Interval (seconds) for checking watched courses.
         """
         # Intervals are passed from __init__, which uses config defaults or arguments
         update_interval = max(3600, update_interval) # Minimum 1 hour
@@ -390,69 +464,89 @@ class McMasterTimetableClient:
     def _term_course_update_loop(self, interval: int):
         """
         Background loop to periodically update terms and courses using the fetcher.
-        Updates the internal caches.
+        Updates the internal caches. Handles errors gracefully.
         """
         log.info(f"Term/Course Updater thread started. Update interval: {interval}s.")
+        # Initial slight delay before first run? Optional.
+        # time.sleep(10)
+
         while True:
-            log.info(f"Term/Course Updater sleeping for {interval} seconds...")
-            time.sleep(interval)
             log.info(f"Term/Course Updater: Running update...")
             start_time = time.time()
             try:
                 # Fetch terms using fetcher, update cache
-                fetched_terms = self.fetcher.fetch_terms()
-                if fetched_terms: # Only update if fetch was successful
-                    with self.terms_lock:
-                        old_count = len(self.terms)
-                        self.terms = fetched_terms
-                        new_count = len(self.terms)
-                        log.info(f"Term/Course Updater: Terms updated. Old count: {old_count}, New count: {new_count}")
-                else:
-                     log.warning("Term/Course Updater: Failed to fetch terms, keeping old list.")
+                fetched_terms = []
+                try:
+                    fetched_terms = self.fetcher.fetch_terms()
+                    if fetched_terms: # Only update if fetch was successful
+                        with self.terms_lock:
+                            old_count = len(self.terms)
+                            self.terms = fetched_terms
+                            new_count = len(self.terms)
+                            if old_count != new_count:
+                                log.info(f"Term/Course Updater: Terms updated. Count changed from {old_count} to {new_count}")
+                            else:
+                                log.debug(f"Term/Course Updater: Terms refreshed. Count remains {new_count}")
+                    else:
+                         log.warning("Term/Course Updater: Fetch terms returned empty list, keeping old list.")
+                except Exception as e:
+                    log.exception("Term/Course Updater: Error during fetch_terms")
 
 
                 # Fetch courses using fetcher for each term, update cache
-                # Need to fetch terms first to know which terms to fetch courses for
                 current_terms_ids = []
                 with self.terms_lock:
                     current_terms_ids = [term['id'] for term in self.terms]
 
                 if current_terms_ids:
                     fetched_courses: Dict[str, List[str]] = {}
+                    total_courses_fetched = 0
+                    fetch_success = True
                     for term_id in current_terms_ids:
                         try:
                             courses_list = self.fetcher.fetch_courses_for_term(term_id)
                             fetched_courses[term_id] = courses_list
+                            total_courses_fetched += len(courses_list)
                             time.sleep(0.2) # Small delay between terms
                         except Exception as e:
                              log.error(f"Term/Course Updater: Error fetching courses for term {term_id}: {e}")
+                             fetch_success = False # Mark that at least one term failed
                              # Continue to next term
 
-                    if fetched_courses: # Only update if at least one term's courses were fetched successfully
+                    # Only update cache if *at least one* term was fetched successfully,
+                    # to avoid wiping cache if all fetches fail temporarily.
+                    # If fetched_courses is empty but fetch_success is true, it means terms exist but have 0 courses.
+                    if fetched_courses or fetch_success:
                         with self.courses_lock:
                             old_term_count = len(self.courses)
                             old_total_courses = sum(len(v) for v in self.courses.values())
-                            self.courses = fetched_courses
+                            self.courses = fetched_courses # Replace entire cache
                             new_term_count = len(self.courses)
                             new_total_courses = sum(len(v) for v in self.courses.values())
-                            log.info(f"Term/Course Updater: Courses updated. Terms: {old_term_count}->{new_term_count}. Total courses: {old_total_courses}->{new_total_courses}")
-                    else:
-                        log.warning("Term/Course Updater: Failed to fetch courses for any terms, keeping old lists.")
+                            if old_term_count != new_term_count or old_total_courses != new_total_courses:
+                                log.info(f"Term/Course Updater: Courses updated. Terms: {old_term_count}->{new_term_count}. Total courses: {old_total_courses}->{new_total_courses}")
+                            else:
+                                 log.debug(f"Term/Course Updater: Courses refreshed. Terms: {new_term_count}, Total courses: {new_total_courses}")
+                    else: # fetch_success is False and fetched_courses is empty
+                        log.warning("Term/Course Updater: Failed to fetch courses for *any* term, keeping old course lists.")
                 else:
-                     log.warning("Term/Course Updater: No terms available to fetch courses for.")
+                     log.warning("Term/Course Updater: No terms available in cache to fetch courses for.")
 
 
                 log.info(f"Term/Course Updater: Update finished. (Took {time.time() - start_time:.2f}s)")
 
             except Exception as e:
                 # Log exceptions but continue running the loop
-                log.error(f"Term/Course Updater: Unhandled error during periodic update: {e}", exc_info=True)
+                log.exception(f"Term/Course Updater: Unhandled error during periodic update cycle")
+
+            log.info(f"Term/Course Updater sleeping for {interval} seconds...")
+            time.sleep(interval)
 
 
     def _watch_check_loop(self, interval: int):
         """
         Background loop to periodically check watched courses using storage and fetcher.
-        Sends notifications via email_utils and updates storage.
+        Sends notifications via email_utils and updates storage. Handles errors gracefully.
         """
         log.info(f"Watch Checker thread started. Check interval: {interval}s.")
         log.info("Watch Checker: Performing initial check in 15 seconds...")
@@ -462,12 +556,12 @@ class McMasterTimetableClient:
             log.info(f"Watch Checker: Running check...")
             start_time = time.time()
             try:
-                # This method now orchestrates calls to storage and fetcher
+                # This method now orchestrates calls to storage and fetcher, and handles internal errors
                 self._check_watched_courses()
                 log.info(f"Watch Checker: Check complete. (Took {time.time() - start_time:.2f}s)")
             except Exception as e:
                 # Log exceptions but continue running the loop
-                log.error(f"Watch Checker: Unhandled error during periodic check: {e}", exc_info=True)
+                log.exception(f"Watch Checker: Unhandled error during periodic check cycle")
 
             log.info(f"Watch Checker sleeping for {interval} seconds...")
             time.sleep(interval)
