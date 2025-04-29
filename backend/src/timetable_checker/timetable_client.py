@@ -6,11 +6,13 @@ import re
 from collections import defaultdict
 from typing import Optional, List, Dict, Tuple, Any
 import requests
+import concurrent.futures
 
 # Config and Utils
 from .config import (
     DATABASE_PATH, EMAIL_SENDER, EMAIL_PASSWORD, DEFAULT_CHECK_INTERVAL_SECONDS,
     DEFAULT_UPDATE_INTERVAL_SECONDS, BASE_URL_MYTIMETABLE,
+    FETCH_DETAILS_TIMEOUT_SECONDS
 )
 from . import logging_config
 from . import email_utils
@@ -275,6 +277,7 @@ class McMasterTimetableClient:
         """
         Checks all pending watch requests using the data fetcher and updates storage.
         Called by the background check loop. Handles errors gracefully.
+        Uses an external timeout for fetching course details to prevent stalls.
         """
         log.info("Starting periodic check for watched courses...")
         pending_requests = []
@@ -295,133 +298,135 @@ class McMasterTimetableClient:
         for req in pending_requests:
             requests_by_term[req['term_id']].append(req)
 
-        notified_ids: List[int] = [] # IDs of requests where notification was sent successfully
-        error_ids: List[int] = []    # IDs of requests where the section disappeared or other fetch error
-        # Keep track of all IDs that were pending *before* this check cycle started
-        all_pending_ids_this_cycle = [req['id'] for req in pending_requests if isinstance(req.get('id'), int)] # Ensure IDs are ints
+        notified_ids: List[int] = []
+        error_ids: List[int] = []
+        all_pending_ids_this_cycle = [req['id'] for req in pending_requests if isinstance(req.get('id'), int)]
 
-        # Process requests term by term
-        for term_id, term_requests in requests_by_term.items():
-            unique_course_codes = sorted(list(set(req['course_code'] for req in term_requests)))
-            if not unique_course_codes: continue
+        # --- Use ThreadPoolExecutor for timeout ---
+        # Create executor with max_workers=1 to process terms sequentially
+        # while still enabling timeout control through ThreadPoolExecutor
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="DetailFetcher") as executor:
+            # Process requests term by term
+            for term_id, term_requests in requests_by_term.items():
+                unique_course_codes = sorted(list(set(req['course_code'] for req in term_requests)))
+                if not unique_course_codes: continue
 
-            log.info(f"Checking details for Term={term_id} ({len(unique_course_codes)} unique courses, {len(term_requests)} requests)...")
-            time.sleep(0.5) # Brief pause before API call
+                log.info(f"Checking details for Term={term_id} ({len(unique_course_codes)} unique courses, {len(term_requests)} requests)...")
+                # No need for time.sleep here anymore, timeout handles waiting
 
-            term_course_details: Dict[str, Dict[str, List[SectionInfo]]] = {}
-            fetch_error_occurred = False
-            try:
-                # Fetch details for all relevant courses in this term in one go using fetcher
-                term_course_details = self.fetcher.fetch_course_details(term_id, unique_course_codes)
-            except requests.exceptions.RequestException as req_err:
-                log.error(f"Network error fetching batch details for Term {term_id}: {req_err}")
-                fetch_error_occurred = True
-                # Mark all requests for this term in this cycle as 'error' temporarily? Or just skip?
-                # Let's skip them for this cycle, they will be retried next time. Logged above.
-                continue # Skip processing requests for this term if the batch fetch failed
-            except Exception as e:
-                log.exception(f"Unexpected error fetching batch details for Term {term_id}")
-                fetch_error_occurred = True
-                continue # Skip processing requests for this term
+                term_course_details: Dict[str, Dict[str, List[SectionInfo]]] = {}
+                fetch_error_occurred = False
 
-            # Check each individual request against the fetched details for the term
-            for req in term_requests:
-                req_id = req.get('id')
-                # Ensure request ID is valid before proceeding
-                if not isinstance(req_id, int):
-                     log.warning(f"Skipping request with invalid ID in term {term_id}: {req}")
-                     continue
+                # --- Submit fetch task to executor ---
+                future = executor.submit(self.fetcher.fetch_course_details, term_id, unique_course_codes)
 
-                course_code = req['course_code']
-                section_key = req['section_key']
-                section_display = req['section_display']
-                email = req['email']
+                try:
+                    # --- Wait for result with external timeout ---
+                    log.debug(f"Waiting for course details fetch (Term={term_id}) with timeout {FETCH_DETAILS_TIMEOUT_SECONDS}s...")
+                    term_course_details = future.result(timeout=FETCH_DETAILS_TIMEOUT_SECONDS)
+                    log.debug(f"Successfully fetched details for Term={term_id}.")
 
-                # Verify details for this specific course were successfully retrieved by the fetcher
-                # If fetch_error_occurred is True, this loop shouldn't even be running for the term
-                if course_code not in term_course_details or not term_course_details[course_code]:
-                    log.warning(f"Details for watched course {course_code} (Term {term_id}) missing from batch fetch result. Request ID: {req_id}. Marking as error for this cycle.")
-                    # Section technically 'not found' in the data we got back. Mark as error.
-                    error_ids.append(req_id)
-                    continue
+                except concurrent.futures.TimeoutError:
+                    future.cancel()  # Cancel the future to prevent hanging threads
+                    log.error(f"Timeout ({FETCH_DETAILS_TIMEOUT_SECONDS}s) exceeded while fetching batch details for Term {term_id}. Skipping term for this cycle.")
+                    fetch_error_occurred = True
+                    # Optional: Mark all requests for this term as error? Or just skip and retry next time.
+                    # Skipping is generally safer.
+                    continue # Skip processing requests for this term
 
-                # Check if the specific section still exists and get its seat count
-                course_sections = term_course_details[course_code]
-                section_exists = False
-                current_open_seats = -1 # Default if not found
-                # Iterate through all block types (LEC, LAB, TUT, etc.)
-                for block_type, sections_list in course_sections.items():
-                    # Iterate through sections within that block type
-                    for section in sections_list:
-                        if section['key'] == section_key:
-                            section_exists = True
-                            current_open_seats = section['open_seats']
-                            break
-                    if section_exists: break # Found the section, exit inner loops
+                except requests.exceptions.RequestException as req_err:
+                    # Exception happened *inside* the fetcher call
+                    log.error(f"Network error during fetch task for Term {term_id}: {req_err}")
+                    fetch_error_occurred = True
+                    continue # Skip processing requests for this term
 
-                if not section_exists:
-                     log.warning(f"Watched section {section_display} ({section_key}) for {course_code} no longer exists in term {term_id}. Marking as error/cancelled. Request ID: {req_id}.")
-                     error_ids.append(req_id) # Mark for DB update
-                     continue # Move to the next request
+                except Exception as e:
+                    # Other unexpected error happened *inside* the fetcher call
+                    log.exception(f"Unexpected error during fetch task for Term {term_id}")
+                    fetch_error_occurred = True
+                    continue # Skip processing requests for this term
 
-                # Check if seats have opened up
-                if current_open_seats > 0:
-                    log.info(f"Open seats found for {course_code} {section_display} ({section_key})! Seats: {current_open_seats}. Notifying {email} (Request ID: {req_id}).")
-
-                    # Prepare email notification
-                    term_name = f"Term ID {term_id}" # Default term name
-                    with self.terms_lock: # Get readable term name if possible from cache
-                        term_info = next((t for t in self.terms if t['id'] == term_id), None)
-                        if term_info: term_name = term_info['name']
-
-                    email_content = None
-                    try:
-                        email_content = email_utils.create_notification_email(
-                            course_code=course_code,
-                            term_name=term_name,
-                            term_id=term_id,
-                            section_display=section_display,
-                            section_key=section_key,
-                            open_seats=current_open_seats,
-                            request_id=req_id
-                        )
-                    except Exception as email_gen_err:
-                         log.exception(f"Error generating email content for request ID {req_id}")
-                         # Don't mark as notified if content failed. Will retry next cycle.
+                # --- Check each individual request (existing logic) ---
+                # This part only runs if the fetch succeeded within the timeout
+                for req in term_requests:
+                    req_id = req.get('id')
+                    if not isinstance(req_id, int):
+                         log.warning(f"Skipping request with invalid ID in term {term_id}: {req}")
                          continue
 
-                    if email_content:
-                        subject, html_body = email_content # Unpack only if successful
-                        # Use the email_utils module for sending
-                        email_sent = False
+                    course_code = req['course_code']
+                    section_key = req['section_key']
+                    section_display = req['section_display']
+                    email = req['email']
+
+                    # Check if details were retrieved (handled by fetcher returning {} on error)
+                    if course_code not in term_course_details or not term_course_details[course_code]:
+                        log.warning(f"Details for watched course {course_code} (Term {term_id}) missing from fetch result. Request ID: {req_id}. Marking as error.")
+                        error_ids.append(req_id)
+                        continue
+
+                    # Find section and check seats (existing logic)
+                    course_sections = term_course_details[course_code]
+                    section_exists = False
+                    current_open_seats = -1
+                    for block_type, sections_list in course_sections.items():
+                        for section in sections_list:
+                            if section['key'] == section_key:
+                                section_exists = True
+                                current_open_seats = section['open_seats']
+                                break
+                        if section_exists: break
+
+                    if not section_exists:
+                         log.warning(f"Watched section {section_display} ({section_key}) for {course_code} no longer exists in term {term_id}. Marking as error. Request ID: {req_id}.")
+                         error_ids.append(req_id)
+                         continue
+
+                    if current_open_seats > 0:
+                        log.info(f"Open seats found for {course_code} {section_display} ({section_key})! Seats: {current_open_seats}. Notifying {email} (Request ID: {req_id}).")
+
+                        # Prepare and send email (existing logic using email_utils)
+                        term_name = f"Term ID {term_id}"
+                        with self.terms_lock:
+                            term_info = next((t for t in self.terms if t['id'] == term_id), None)
+                            if term_info: term_name = term_info['name']
+
+                        email_content = None
                         try:
-                            email_sent = email_utils.send_email(email, subject, html_body=html_body)
-                        except Exception as email_send_err:
-                            log.exception(f"Error sending notification email for request ID {req_id}")
-                            # Don't mark as notified if sending failed. Will retry next cycle.
-                            continue
+                            email_content = email_utils.create_notification_email(
+                                course_code=course_code, term_name=term_name, term_id=term_id,
+                                section_display=section_display, section_key=section_key,
+                                open_seats=current_open_seats, request_id=req_id
+                            )
+                        except Exception as email_gen_err:
+                             log.exception(f"Error generating email content for request ID {req_id}")
+                             continue
 
-                        if email_sent:
-                            notified_ids.append(req_id) # Mark for DB update as notified
+                        if email_content:
+                            subject, html_body = email_content
+                            email_sent = False
+                            try:
+                                email_sent = email_utils.send_email(email, subject, html_body=html_body)
+                            except Exception as email_send_err:
+                                log.exception(f"Error sending notification email for request ID {req_id}")
+                                continue
+
+                            if email_sent:
+                                notified_ids.append(req_id)
+                            else:
+                                log.error(f"Failed to send notification email for request ID {req_id}. It will remain pending.")
                         else:
-                            log.error(f"Failed to send notification email for request ID {req_id} (send_email returned False). It will remain pending.")
-                            # Do NOT add to notified_ids if email failed to send
-                    else:
-                        log.error(f"Email content generation failed for request ID {req_id}. It will remain pending.")
-                        # Do NOT add to notified_ids if email content generation failed
+                            log.error(f"Email content generation failed for request ID {req_id}. It will remain pending.")
+                    # else: # Seats still closed
+                    #    pass (last_checked_at updated below)
 
-                # else: # Section exists but seats are not open (current_open_seats <= 0)
-                     # log.debug(f"Seats still closed for {course_code} {section_display} ({section_key}). Request ID: {req_id}.")
-                     # No action needed, last_checked_at will be updated below.
-                     # Pass
-
-        # Update database statuses in bulk using the Storage component
+        # --- Update database statuses ---
         if notified_ids or error_ids or all_pending_ids_this_cycle:
              try:
                  self.storage.update_request_statuses(
                      notified_ids=notified_ids,
                      error_ids=error_ids,
-                     checked_ids=all_pending_ids_this_cycle # Pass all IDs that were potentially checked
+                     checked_ids=all_pending_ids_this_cycle
                  )
              except Exception as e:
                  log.exception("Failed to update request statuses in storage after check cycle.")
