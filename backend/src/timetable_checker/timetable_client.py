@@ -472,8 +472,8 @@ class McMasterTimetableClient:
         Updates the internal caches. Handles errors gracefully.
         """
         log.info(f"Term/Course Updater thread started. Update interval: {interval}s.")
-        # Initial slight delay before first run? Optional.
-        # time.sleep(10)
+        log.info(f"Term/Course Updater: Performing initial check in {interval} seconds...")
+        time.sleep(interval)
 
         while True:
             log.info(f"Term/Course Updater: Running update...")
@@ -554,8 +554,8 @@ class McMasterTimetableClient:
         Sends notifications via email_utils and updates storage. Handles errors gracefully.
         """
         log.info(f"Watch Checker thread started. Check interval: {interval}s.")
-        log.info("Watch Checker: Performing initial check in 15 seconds...")
-        time.sleep(15) # Wait briefly after initialization before first check
+        log.info(f"Watch Checker: Performing initial check in {interval} seconds...")
+        time.sleep(interval) # Wait briefly after initialization before first check
 
         while True:
             log.info(f"Watch Checker: Running check...")
