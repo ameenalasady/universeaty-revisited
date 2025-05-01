@@ -181,3 +181,7 @@ tests/
 .python-version
 
 logs/
+
+test_send_email.py
+
+/data
