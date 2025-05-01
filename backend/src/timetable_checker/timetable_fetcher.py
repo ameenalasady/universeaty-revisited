@@ -78,11 +78,35 @@ class TimetableFetcher:
 
     def _get_t_and_e(self) -> tuple[int, int]:
         """
-        Calculates the 't' and 'e' parameters required by the class data API.
-        Based on reverse-engineering the website's JavaScript.
+        Calculates the 't' and 'e' time-based parameters required by the
+        MyTimetable class data API (`/api/class-data`).
+
+        This calculation was derived by reverse-engineering the JavaScript code
+        found on the `mytimetable.mcmaster.ca` website.
+
+        The original (slightly deobfuscated) JavaScript function is:
+
+        ```javascript
+        function nWindow() {
+            // t is calculated as the number of minutes since the Unix epoch,
+            // modulo 1000.
+            var t = (Math.floor((new Date()) / 60000)) % 1000;
+
+            // e is derived from t using specific modulo operations.
+            var e = t % 3 + t % 39 + t % 42;
+
+            // The function originally returned these as part of a query string,
+            // but we just need the numerical values.
+            // return "&t=" + t + "&e=" + e;
+            return { t: t, e: e }; // conceptually
+        }
+        ```
+
+        This Python implementation replicates the logic to generate valid `t`
+        and `e` values for API requests.
 
         Returns:
-            A tuple containing the calculated (t, e) values.
+            A tuple containing the calculated integer values (t, e).
         """
         t = (int(time.time() / 60)) % 1000
         e = t % 3 + t % 39 + t % 42

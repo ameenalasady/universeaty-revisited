@@ -55,19 +55,16 @@ ImportError if the client file is missing, preventing the application
 from starting incorrectly.
 """
 try:
-    # Import the orchestrator client from the new file location
     from .timetable_client import McMasterTimetableClient
-    # Import custom exceptions for API error handling <<<< ADDED THIS
     from .exceptions import (
         InvalidInputError, TermNotFoundError, CourseNotFoundError, SectionNotFoundError,
         SeatsAlreadyOpenError, AlreadyPendingError, DatabaseError, ExternalApiError,
         DataNotReadyError, NotificationSystemError, TimetableCheckerBaseError
     )
-except ImportError as e: # Combined ImportError handling
-    # Use print here as logging might not be configured if import fails early
+except ImportError as e:
     print(f"Error: Could not import required components: {e}", file=sys.stderr)
     print("Ensure 'timetable_client.py' and 'exceptions.py' exist and are in the same directory or Python path.", file=sys.stderr)
-    exit(1) # Stop execution if client or exceptions cannot be imported
+    exit(1)
 
 app = Flask(__name__)
 
@@ -103,7 +100,7 @@ and sets a basic configuration for log level (INFO) and message format. This ens
 that requests and important application events are logged for monitoring and debugging.
 THIS IS NOW HANDLED BY logging_config.py
 """
-log = logging.getLogger(__name__) # Use application-specific logger
+log = logging.getLogger(__name__)
 
 # --- Rate Limiting Setup ---
 """
@@ -130,16 +127,10 @@ setting the client variable to None if initialization fails, which is checked la
 in API endpoints.
 """
 log.info("Initializing McMasterTimetableClient...")
-client = None # Initialize client as None before try block
+client = None
 try:
-    # Check imported config values
     if not EMAIL_PASSWORD or not EMAIL_SENDER:
-         # Log as critical because email notifications will fail
          log.critical("CRITICAL: EMAIL_SENDER or EMAIL_PASSWORD not set (via config). Email notifications will fail. Watch requests will be disabled.")
-         # API can still run for read-only operations, but watch requests will fail later.
-
-    # Instantiate the client using configuration defaults defined within the client/config
-    # Pass required config values that the orchestrator needs
     client = McMasterTimetableClient(
         base_url=BASE_URL_MYTIMETABLE,
         db_path=DATABASE_PATH,
@@ -149,10 +140,8 @@ try:
     log.info("McMasterTimetableClient initialized successfully.")
 
 except Exception as e:
-    # Log the critical failure and ensure client remains None
     log.critical(f"Failed to initialize McMasterTimetableClient: {e}", exc_info=True)
-    client = None # Explicitly ensure client is None on failure
-
+    client = None
 
 # --- Request/Response Lifecycle Hooks ---
 """
@@ -574,7 +563,7 @@ def fetch_course_details(term_id, course_code):
              log.warning(f"Course code '{normalized_course_code}' not found in term '{term_id}'.")
              return jsonify({"error": f"Course code '{normalized_course_code}' not found in term '{term_id}'."}), 404
 
-        # Fetch details using the fetcher component of the client <<<< Reverted this part
+        # Fetch details using the fetcher component of the client
         log.info(f"Fetching details for course '{normalized_course_code}' in term {term_id}.")
         # Original approach assumed client had a unified fetch method, let's keep that assumption for now
         # If the client's internal method is fetch_course_details which uses the fetcher:
@@ -612,7 +601,7 @@ def add_watch_request():
         - section_key: Unique identifier string for the specific lecture/lab/tutorial section.
     Input Validation: Checks for JSON format, required fields, valid email/term/course/section formats,
                      term existence, course existence within the term, and email notification system configuration.
-                     **Uses specific exceptions for error handling.** <<<< Updated this comment
+                     **Uses specific exceptions for error handling.**
     Responses:
         - 201 Created: {"message": "Successfully added watch request...", "request_id": ...} on new success.
         - 200 OK: {"message": "Successfully reactivated...", "request_id": ...} if request was reactivated.
@@ -664,7 +653,7 @@ def add_watch_request():
 
     log.info(f"Processing watch request from {email} for {normalized_course_code} [{section_key}] in term {term_id}")
 
-    # --- Call Client Method with Exception Handling --- <<<< REPLACED THIS SECTION
+    # --- Call Client Method with Exception Handling ---
     try:
         # Client method now returns (message, request_id) on success
         # or raises specific exceptions on failure.
@@ -840,7 +829,7 @@ def handle_bad_request(error):
     log.warning(f"Returning 400 Bad Request: {description}")
     return jsonify(error=description), 400
 
-@app.errorhandler(401) # Added handler for Unauthorized
+@app.errorhandler(401)
 def handle_unauthorized(error):
     """Handles 401 Unauthorized errors, typically from missing auth."""
     response = getattr(error, 'response', None)
@@ -850,7 +839,7 @@ def handle_unauthorized(error):
     log.warning(f"Returning 401 Unauthorized for {request.path}: {description}")
     return jsonify(error=description), 401
 
-@app.errorhandler(403) # Added handler for Forbidden
+@app.errorhandler(403)
 def handle_forbidden(error):
     """Handles 403 Forbidden errors, typically from invalid auth."""
     response = getattr(error, 'response', None)

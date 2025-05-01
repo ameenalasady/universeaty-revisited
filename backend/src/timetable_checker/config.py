@@ -35,7 +35,7 @@ DATABASE_PATH = os.path.join(DATA_DIR, DATABASE_FILENAME)
 TEMPLATE_DIR = os.path.join(CONFIG_DIR, "templates") # src/timetable_checker/templates/
 TEMPLATE_FILENAME = "notification_template.html"
 
-# Logging Settings <<< ADDED THIS SECTION
+# Logging Settings
 LOG_LEVEL_STR = os.environ.get('LOG_LEVEL', 'INFO').upper()
 LOG_LEVEL = getattr(logging, LOG_LEVEL_STR, logging.INFO) # Default to INFO if invalid level in .env
 LOG_FORMAT = '%(asctime)s - %(levelname)s - %(name)s:%(lineno)d - %(threadName)s - %(message)s'
