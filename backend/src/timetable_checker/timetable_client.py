@@ -510,9 +510,8 @@ class McMasterTimetableClient:
         """
         log.info(f"Term/Course Updater thread started. Update interval: {interval}s, Double-check delay: {double_check_delay_s}s.")
         # Perform the first update slightly sooner after startup, then use the full interval
-        initial_wait = min(interval, 120) # Wait max 2 mins for the very first run
-        log.info(f"Term/Course Updater: Performing first update in {initial_wait} seconds...")
-        time.sleep(initial_wait)
+        log.info(f"Term/Course Updater: Performing first update in {interval} seconds...")
+        time.sleep(interval)
 
 
         while True:
@@ -641,7 +640,7 @@ class McMasterTimetableClient:
             log.info(f"Term/Course Updater: Update cycle finished. Term update attempted: {'Yes' if term_update_performed else 'No/Failed'}, Course update attempted: {'Yes' if course_update_performed else 'No/Failed'}. (Took {duration:.2f}s)")
 
             log.info(f"Term/Course Updater sleeping for {interval} seconds...")
-            time.sleep(interval) # Use the full interval for subsequent runs
+            time.sleep(interval)
 
 
 
