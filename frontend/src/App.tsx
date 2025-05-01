@@ -173,16 +173,22 @@ function App() {
       try {
         const fetchedTerms = await getTerms();
         setTerms(fetchedTerms);
-        // Set a default term (prefer Winter > Fall > First)
         if (fetchedTerms.length > 0) {
-          const winter = fetchedTerms.find((t) =>
-            t.name.toLowerCase().includes("winter")
-          );
-          const fall = fetchedTerms.find((t) =>
-            t.name.toLowerCase().includes("fall")
-          );
-          const defaultTermId = winter?.id || fall?.id || fetchedTerms[0].id;
-          setSelectedTerm(defaultTermId);
+          // Sort terms by ID in ascending order.
+          // We assume higher IDs correspond to more recent terms.
+          // Create a copy using [...fetchedTerms] before sorting
+          // to avoid potentially mutating the original array if it's used elsewhere.
+          const sortedTerms = [...fetchedTerms].sort((a, b) => {
+            // Use localeCompare for robust string comparison,
+            // suitable for IDs like "202401", "202309" etc.
+            return a.id.localeCompare(b.id);
+            // If IDs were guaranteed numeric and needed numerical sorting:
+            // return parseInt(a.id, 10) - parseInt(b.id, 10);
+          });
+
+          // The last term in the sorted array has the highest ID
+          const mostRecentTermId = sortedTerms[sortedTerms.length - 1].id;
+          setSelectedTerm(mostRecentTermId);
         } else {
           toast.error("No terms found", {
             description: "Could not load any academic terms from the server.",
