@@ -26,6 +26,7 @@ import time
 from werkzeug.middleware.proxy_fix import ProxyFix
 from datetime import datetime, timezone
 import threading
+import requests
 
 # --- Import Configuration First ---
 # This module now handles path calculation and .env loading
@@ -305,18 +306,21 @@ def health_check():
     Purpose: Provides a detailed health status of the API and its components.
     Checks:
         - Client Initialization: If the core Timetable Client is running.
-        - Term Data: If academic terms have been loaded.
-        - Database Connection: If the database for watches is accessible.
+        - Data Readiness: If essential data like academic terms seems loaded.
+        - Database Connection: If the watch request database is accessible.
         - Background Threads: If the data update and watch check threads are active.
         - Email Configuration: If email credentials for notifications are set.
+        - Fetcher Status: Basic check if the external data fetcher component is initialized.
     Rate Limit: 10 requests per minute; 3 per 10 seconds per IP.
     Responses:
         - 200 OK: {"status": "healthy" | "degraded", "details": {...}}
-                  - "healthy": All checks passed.
+                  - "healthy": All critical checks passed, non-critical checks mostly okay.
                   - "degraded": Core functions okay, but some non-critical checks failed
-                                (e.g., terms not loaded yet, email config missing, one thread down).
+                                (e.g., terms not loaded *yet*, email config missing, one thread down).
+                                The service might be operational but not fully functional.
         - 503 Service Unavailable: {"status": "unhealthy", "details": {...}}
                                    Critical failure (client not initialized, database inaccessible).
+                                   The service is likely unable to perform its primary functions.
     Cache: No-cache (set in add_caching_headers).
     """
     log.info("Health check requested.")
@@ -324,116 +328,167 @@ def health_check():
 
     details = {
         "client_initialized": None,
-        "terms_loaded": None,
+        "data_readiness": {
+            "terms_loaded": None,
+            "courses_loaded": None,
+        },
         "database_connection": None,
         "background_threads": {
             "updater_alive": None,
             "checker_alive": None
         },
         "email_configuration": None,
-        "timestamp": datetime.now(timezone.utc).isoformat(timespec='seconds')
+        "fetcher_status": None, # Added check
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec='seconds'),
+        "check_duration_ms": None
     }
+    # Status hierarchy: healthy -> degraded -> unhealthy
     overall_status = "healthy" # Start optimistic
     status_code = 200
+    active_client = None # Define here for broader scope
 
-    # --- Check 1: Client Initialization ---
-    active_client_or_error = get_client_or_abort()
-    if isinstance(active_client_or_error, tuple):
+    # --- Check 1: Client Initialization (Critical) ---
+    client_or_error = get_client_or_abort()
+    if isinstance(client_or_error, tuple):
         # get_client_or_abort returned an error response (jsonify({...}), 503)
         details["client_initialized"] = False
-        details["database_connection"] = "skipped" # Cannot check DB without client
-        details["terms_loaded"] = "skipped"
+        # Mark subsequent dependent checks as skipped
+        details["data_readiness"]["terms_loaded"] = "skipped"
+        details["data_readiness"]["courses_loaded"] = "skipped"
+        details["database_connection"] = "skipped"
         details["background_threads"]["updater_alive"] = "skipped"
         details["background_threads"]["checker_alive"] = "skipped"
-        # Check imported config values for email status
+        details["fetcher_status"] = "skipped"
+        # Check email config directly from imported values
         details["email_configuration"] = "ok" if EMAIL_PASSWORD and EMAIL_SENDER else "missing_credentials"
         overall_status = "unhealthy"
         status_code = 503
         log.warning("Health check: Client not initialized. Reporting unhealthy.")
-        duration = (time.time() - start_time) * 1000
-        log.info(f"Health check completed in {duration:.2f}ms. Status: {overall_status}")
-        # Use the error response directly from get_client_or_abort if you want its specific message
-        # return active_client_or_error
-        # Or return our structured response:
-        return jsonify({"status": overall_status, "details": details}), status_code
     else:
         # Client is initialized
-        active_client = active_client_or_error
+        active_client = client_or_error # Assign the actual client object
         details["client_initialized"] = True
         log.debug("Health check: Client initialized.")
 
-    # --- Check 2: Term Data Availability ---
-    try:
-        terms = active_client.get_terms() # This returns a copy
-        if terms and isinstance(terms, list) and len(terms) > 0:
-            details["terms_loaded"] = True
-            log.debug(f"Health check: Terms loaded ({len(terms)} found).")
-        else:
-            details["terms_loaded"] = False
-            overall_status = "degraded" # Not critical, but not fully healthy yet
-            log.warning("Health check: Terms list is empty or not loaded. Reporting degraded.")
-    except Exception as e:
-        details["terms_loaded"] = f"error: {type(e).__name__}"
-        overall_status = "degraded"
-        log.error(f"Health check: Error checking terms: {e}", exc_info=True)
-    # --- Check 3: Database Connectivity ---
-    try:
-        db_ok = active_client.storage.check_connection()
-        if db_ok:
-            details["database_connection"] = "ok"
-            log.debug("Health check: Database connection successful.")
-        else:
-            details["database_connection"] = "error"
-            overall_status = "unhealthy" # Database is critical for watches
+        # --- Checks depending on initialized client ---
+
+        # Check 2: Data Readiness (Terms - Degraded if not ready)
+        try:
+            terms = active_client.get_terms() # Uses lock, returns copy
+            if terms and isinstance(terms, list) and len(terms) > 0:
+                details["data_readiness"]["terms_loaded"] = True
+                log.debug(f"Health check: Terms loaded ({len(terms)} found).")
+            else:
+                # Could be initial startup phase or a fetch failure
+                details["data_readiness"]["terms_loaded"] = False
+                if overall_status == "healthy": overall_status = "degraded"
+                log.warning("Health check: Terms list is empty or not loaded. Reporting degraded.")
+        except Exception as e:
+            details["data_readiness"]["terms_loaded"] = f"error: {type(e).__name__}"
+            if overall_status == "healthy": overall_status = "degraded"
+            log.error(f"Health check: Error checking terms: {e}", exc_info=True)
+
+        # Check 2b: Data Readiness (Courses - Degraded if not ready)
+        try:
+            # Check if the courses dictionary is populated for *any* term
+            courses_data = active_client.get_courses() # Gets dict copy
+            # Check if it's a non-empty dict AND at least one term has a non-empty list of courses
+            if courses_data and isinstance(courses_data, dict) and any(bool(v) for v in courses_data.values()):
+                 details["data_readiness"]["courses_loaded"] = True
+                 total_courses = sum(len(v) for v in courses_data.values())
+                 log.debug(f"Health check: Courses loaded ({len(courses_data)} terms, {total_courses} total courses).")
+            else:
+                details["data_readiness"]["courses_loaded"] = False
+                if overall_status == "healthy": overall_status = "degraded"
+                log.warning("Health check: Courses data structure is empty or contains no course lists. Reporting degraded.")
+        except Exception as e:
+            details["data_readiness"]["courses_loaded"] = f"error: {type(e).__name__}"
+            if overall_status == "healthy": overall_status = "degraded"
+            log.error(f"Health check: Error checking courses: {e}", exc_info=True)
+
+
+        # Check 3: Database Connectivity (Critical - Unhealthy if failed)
+        try:
+            # Assuming client.storage holds the RequestStorage instance
+            db_ok = active_client.storage.check_connection()
+            if db_ok:
+                details["database_connection"] = "ok"
+                log.debug("Health check: Database connection successful.")
+            else:
+                details["database_connection"] = "error"
+                overall_status = "unhealthy" # Database is critical
+                status_code = 503
+                log.error("Health check: Database connection failed. Reporting unhealthy.")
+        except AttributeError:
+             details["database_connection"] = "error: storage component missing"
+             overall_status = "unhealthy"
+             status_code = 503
+             log.error("Health check: Client object missing 'storage' attribute.")
+        except Exception as e:
+            details["database_connection"] = f"error: {type(e).__name__}"
+            overall_status = "unhealthy" # Assume DB error is critical
             status_code = 503
-            log.error("Health check: Database connection failed. Reporting unhealthy.")
-    except Exception as e:
-        details["database_connection"] = f"error: {type(e).__name__}"
-        overall_status = "unhealthy" # Assume DB error is critical
-        status_code = 503
-        log.error(f"Health check: Unexpected error checking database connection: {e}", exc_info=False)
+            log.error(f"Health check: Unexpected error checking database connection: {e}", exc_info=False)
 
-    # --- Check 4: Background Thread Status ---
-    try:
-        updater_thread = getattr(active_client, 'update_thread', None)
-        checker_thread = getattr(active_client, 'check_thread', None)
+        # Check 4: Background Thread Status (Degraded if failed)
+        try:
+            updater_thread = getattr(active_client, 'update_thread', None)
+            checker_thread = getattr(active_client, 'check_thread', None)
 
-        updater_alive = isinstance(updater_thread, threading.Thread) and updater_thread.is_alive()
-        checker_alive = isinstance(checker_thread, threading.Thread) and checker_thread.is_alive()
+            updater_alive = isinstance(updater_thread, threading.Thread) and updater_thread.is_alive()
+            checker_alive = isinstance(checker_thread, threading.Thread) and checker_thread.is_alive()
 
-        details["background_threads"]["updater_alive"] = updater_alive
-        details["background_threads"]["checker_alive"] = checker_alive
+            details["background_threads"]["updater_alive"] = updater_alive
+            details["background_threads"]["checker_alive"] = checker_alive
 
-        if not updater_alive:
+            if not updater_alive:
+                if overall_status == "healthy": overall_status = "degraded"
+                log.warning("Health check: Term/Course Updater thread is not alive. Reporting degraded.")
+            else:
+                 log.debug("Health check: Term/Course Updater thread is alive.")
+
+            if not checker_alive:
+                if overall_status == "healthy": overall_status = "degraded"
+                log.warning("Health check: Watch Checker thread is not alive. Reporting degraded.")
+            else:
+                log.debug("Health check: Watch Checker thread is alive.")
+
+        except Exception as e:
+            details["background_threads"]["updater_alive"] = f"error: {type(e).__name__}"
+            details["background_threads"]["checker_alive"] = f"error: {type(e).__name__}"
+            if overall_status == "healthy": overall_status = "degraded" # Consider thread check failure as degraded
+            log.error(f"Health check: Error checking background threads: {e}", exc_info=False)
+
+        # Check 5: Fetcher Status (Basic init check - Degraded if failed)
+        try:
+            fetcher = getattr(active_client, 'fetcher', None)
+            # Check if fetcher exists and has an initialized requests session
+            if fetcher and hasattr(fetcher, 'session') and isinstance(fetcher.session, requests.Session):
+                details["fetcher_status"] = "initialized"
+                log.debug("Health check: Fetcher component appears initialized.")
+            else:
+                details["fetcher_status"] = "not_initialized_or_missing"
+                if overall_status == "healthy": overall_status = "degraded"
+                log.warning("Health check: Fetcher component missing or not initialized properly. Reporting degraded.")
+        except Exception as e:
+            details["fetcher_status"] = f"error: {type(e).__name__}"
             if overall_status == "healthy": overall_status = "degraded"
-            log.warning("Health check: Term/Course Updater thread is not alive.")
-        else:
-             log.debug("Health check: Term/Course Updater thread is alive.")
+            log.error(f"Health check: Error checking fetcher status: {e}", exc_info=False)
 
-        if not checker_alive:
-            if overall_status == "healthy": overall_status = "degraded"
-            log.warning("Health check: Watch Checker thread is not alive.")
-        else:
-            log.debug("Health check: Watch Checker thread is alive.")
-
-    except Exception as e:
-        details["background_threads"]["updater_alive"] = f"error: {type(e).__name__}"
-        details["background_threads"]["checker_alive"] = f"error: {type(e).__name__}"
-        if overall_status == "healthy": overall_status = "degraded" # Consider thread check failure as degraded
-        log.error(f"Health check: Error checking background threads: {e}", exc_info=False)
-
-    # --- Check 5: Email Configuration ---
+    # --- Check 6: Email Configuration (Performed regardless of client state - Degraded if missing) ---
     if EMAIL_PASSWORD and EMAIL_SENDER:
         details["email_configuration"] = "ok"
         log.debug("Health check: Email configuration appears ok.")
     else:
         details["email_configuration"] = "missing_credentials"
-        if overall_status == "healthy": overall_status = "degraded" # Email needed for full function
-        log.warning("Health check: Email credentials (PASSWORD/EMAIL_SENDER) missing (via config). Reporting degraded.")
+        # Downgrade status only if it wasn't already unhealthy
+        if overall_status == "healthy": overall_status = "degraded"
+        log.warning("Health check: Email credentials (PASSWORD/EMAIL_SENDER) missing (via config). Reporting degraded (if not already unhealthy).")
 
     # --- Final Response ---
-    duration = (time.time() - start_time) * 1000
-    log.info(f"Health check completed in {duration:.2f}ms. Final Status: {overall_status} (HTTP {status_code})")
+    duration_ms = (time.time() - start_time) * 1000
+    details["check_duration_ms"] = round(duration_ms, 2)
+    log.info(f"Health check completed in {duration_ms:.2f}ms. Final Status: {overall_status} (HTTP {status_code})")
     return jsonify({"status": overall_status, "details": details}), status_code
 
 
