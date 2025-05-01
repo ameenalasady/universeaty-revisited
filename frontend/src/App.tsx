@@ -310,12 +310,30 @@ function App() {
    */
   const handleTermChange = useCallback(
     (termId: string) => {
+      // Only proceed if the term actually changed
       if (termId !== selectedTerm) {
+        // 1. Update the selected term
         setSelectedTerm(termId);
-        // State resets dependent on selectedTerm happen in the useEffect hook
+
+        // 2. *** Immediately reset dependent state ***
+        setSelectedCourse("");       // Clear the selected course
+        setCourseDetails(null);     // Clear the details
+        setVisibleCourseCount(INITIAL_COURSE_COUNT); // Reset course list view
+        setCourseSearchQuery("");     // Clear course search
+        setApiError(null);          // Clear any previous API errors
+        if (commandListRef.current) {
+          commandListRef.current.scrollTop = 0; // Reset scroll position
+        }
+        // No need to explicitly set loading states here, the effects will handle it.
+
+        // The useEffect hook listening to `selectedTerm` will still run
+        // to fetch the new courses (or get from cache), but by the time
+        // the details useEffect runs, `selectedCourse` will be ""
+        // and its initial guard condition will prevent the fetch.
       }
     },
-    [selectedTerm] // Dependency: only recreate if selectedTerm changes
+    [selectedTerm] // Dependency: only depends on selectedTerm to compare
+                   // No need to include the setter functions in deps array
   );
 
   const handleCourseSelect = useCallback(
