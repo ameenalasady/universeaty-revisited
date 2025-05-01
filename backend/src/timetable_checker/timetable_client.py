@@ -276,7 +276,8 @@ class McMasterTimetableClient:
     def _check_watched_courses(self):
         """
         Checks all pending watch requests using the data fetcher and updates storage.
-        Called by the background check loop. Handles errors gracefully.
+        Called by the background check loop. Handles external API errors gracefully,
+        leaving requests pending for retry instead of marking them as error on temporary API issues.
         Uses an external timeout for fetching course details to prevent stalls.
         """
         log.info("Starting periodic check for watched courses...")
@@ -299,7 +300,8 @@ class McMasterTimetableClient:
             requests_by_term[req['term_id']].append(req)
 
         notified_ids: List[int] = []
-        error_ids: List[int] = []
+        error_ids: List[int] = [] # Will ONLY contain requests where section is confirmed missing
+        # Get all valid IDs that were initially pending for this cycle
         all_pending_ids_this_cycle = [req['id'] for req in pending_requests if isinstance(req.get('id'), int)]
 
         # --- Use ThreadPoolExecutor for timeout ---
@@ -312,10 +314,9 @@ class McMasterTimetableClient:
                 if not unique_course_codes: continue
 
                 log.info(f"Checking details for Term={term_id} ({len(unique_course_codes)} unique courses, {len(term_requests)} requests)...")
-                # No need for time.sleep here anymore, timeout handles waiting
 
                 term_course_details: Dict[str, Dict[str, List[SectionInfo]]] = {}
-                fetch_error_occurred = False
+                fetch_successful = False
 
                 # --- Submit fetch task to executor ---
                 future = executor.submit(self.fetcher.fetch_course_details, term_id, unique_course_codes)
@@ -324,29 +325,33 @@ class McMasterTimetableClient:
                     # --- Wait for result with external timeout ---
                     log.debug(f"Waiting for course details fetch (Term={term_id}) with timeout {FETCH_DETAILS_TIMEOUT_SECONDS}s...")
                     term_course_details = future.result(timeout=FETCH_DETAILS_TIMEOUT_SECONDS)
+                    # Consider fetch successful if no exception occurred AND we got some data (or an empty dict if that's valid)
+                    # The fetcher should ideally return {} onhandled errors, not raise them here unless it's unhandled.
                     log.debug(f"Successfully fetched details for Term={term_id}.")
+                    fetch_successful = True
 
                 except concurrent.futures.TimeoutError:
                     future.cancel()  # Cancel the future to prevent hanging threads
-                    log.error(f"Timeout ({FETCH_DETAILS_TIMEOUT_SECONDS}s) exceeded while fetching batch details for Term {term_id}. Skipping term for this cycle.")
-                    fetch_error_occurred = True
-                    # Optional: Mark all requests for this term as error? Or just skip and retry next time.
-                    # Skipping is generally safer.
-                    continue # Skip processing requests for this term
+                    log.error(f"Timeout ({FETCH_DETAILS_TIMEOUT_SECONDS}s) exceeded while fetching batch details for Term {term_id}. Skipping term for this cycle. Requests remain pending.")
+                    # fetch_successful remains False
 
                 except requests.exceptions.RequestException as req_err:
-                    # Exception happened *inside* the fetcher call
-                    log.error(f"Network error during fetch task for Term {term_id}: {req_err}")
-                    fetch_error_occurred = True
-                    continue # Skip processing requests for this term
+                    # Exception happened *inside* the fetcher call but propagated
+                    log.error(f"Network error during fetch task for Term {term_id}: {req_err}. Skipping term for this cycle. Requests remain pending.")
+                    # fetch_successful remains False
 
                 except Exception as e:
                     # Other unexpected error happened *inside* the fetcher call
-                    log.exception(f"Unexpected error during fetch task for Term {term_id}")
-                    fetch_error_occurred = True
-                    continue # Skip processing requests for this term
+                    log.exception(f"Unexpected error during fetch task for Term {term_id}. Skipping term for this cycle. Requests remain pending.")
+                    # fetch_successful remains False
 
-                # --- Check each individual request (existing logic) ---
+                # --- IMPORTANT: Only proceed if the fetch was successful ---
+                if not fetch_successful:
+                    # Leave the requests associated with this term as 'pending' in the DB
+                    log.warning(f"Skipping checks for term {term_id} this cycle due to fetch failure.")
+                    continue # Skip to the next term
+
+                # --- Check each individual request (ONLY if fetch succeeded) ---
                 # This part only runs if the fetch succeeded within the timeout
                 for req in term_requests:
                     req_id = req.get('id')
@@ -359,10 +364,13 @@ class McMasterTimetableClient:
                     section_display = req['section_display']
                     email = req['email']
 
-                    # Check if details were retrieved (handled by fetcher returning {} on error)
+                    # Check if details were retrieved for this specific course within the successful batch fetch
                     if course_code not in term_course_details or not term_course_details[course_code]:
-                        log.warning(f"Details for watched course {course_code} (Term {term_id}) missing from fetch result. Request ID: {req_id}. Marking as error.")
-                        error_ids.append(req_id)
+                        # This indicates an inconsistency: batch fetch succeeded overall, but data for THIS course is missing.
+                        # This could mean the course itself vanished between the cache update and now,
+                        # or the API returned partial data. Treat as section not found / error for THIS request.
+                        log.warning(f"Details for watched course {course_code} (Term {term_id}) missing from SUCCESSFUL fetch result. Request ID: {req_id}. Marking as error.")
+                        error_ids.append(req_id) # Mark this specific request as error
                         continue
 
                     # Find section and check seats (existing logic)
@@ -379,9 +387,10 @@ class McMasterTimetableClient:
 
                     if not section_exists:
                          log.warning(f"Watched section {section_display} ({section_key}) for {course_code} no longer exists in term {term_id}. Marking as error. Request ID: {req_id}.")
-                         error_ids.append(req_id)
+                         error_ids.append(req_id) # Correctly mark as error
                          continue
 
+                    # --- Process open seats ---
                     if current_open_seats > 0:
                         log.info(f"Open seats found for {course_code} {section_display} ({section_key})! Seats: {current_open_seats}. Notifying {email} (Request ID: {req_id}).")
 
@@ -400,7 +409,7 @@ class McMasterTimetableClient:
                             )
                         except Exception as email_gen_err:
                              log.exception(f"Error generating email content for request ID {req_id}")
-                             continue
+                             continue # Skip notification for this request this cycle
 
                         if email_content:
                             subject, html_body = email_content
@@ -409,24 +418,29 @@ class McMasterTimetableClient:
                                 email_sent = email_utils.send_email(email, subject, html_body=html_body)
                             except Exception as email_send_err:
                                 log.exception(f"Error sending notification email for request ID {req_id}")
-                                continue
+                                continue # Skip marking as notified if send failed
 
                             if email_sent:
-                                notified_ids.append(req_id)
+                                notified_ids.append(req_id) # Mark as notified
                             else:
                                 log.error(f"Failed to send notification email for request ID {req_id}. It will remain pending.")
                         else:
                             log.error(f"Email content generation failed for request ID {req_id}. It will remain pending.")
-                    # else: # Seats still closed
-                    #    pass (last_checked_at updated below)
+                    # else: # Seats still closed (current_open_seats == 0)
+                    #    pass (request remains pending, last_checked_at updated below)
 
         # --- Update database statuses ---
+        # error_ids now only contains requests where section was confirmed missing.
+        # notified_ids contains requests successfully notified.
+        # all_pending_ids_this_cycle is used to update last_checked_at for those *still* pending.
         if notified_ids or error_ids or all_pending_ids_this_cycle:
              try:
+                 # The storage function should correctly handle updating last_checked_at for
+                 # items in checked_ids that are NOT in notified_ids or error_ids
                  self.storage.update_request_statuses(
                      notified_ids=notified_ids,
                      error_ids=error_ids,
-                     checked_ids=all_pending_ids_this_cycle
+                     checked_ids=all_pending_ids_this_cycle # Pass all IDs attempted this cycle
                  )
              except Exception as e:
                  log.exception("Failed to update request statuses in storage after check cycle.")
@@ -434,6 +448,24 @@ class McMasterTimetableClient:
 
         log.info("Finished periodic check for watched courses.")
 
+    def _compare_term_lists(self, list1: List[TermInfo], list2: List[TermInfo]) -> bool:
+        """Compares two lists of TermInfo dictionaries for equality based on id and name."""
+        if len(list1) != len(list2):
+            return False
+        # Compare sets of tuples for content equality, ignoring order
+        set1 = set((term.get('id'), term.get('name')) for term in list1)
+        set2 = set((term.get('id'), term.get('name')) for term in list2)
+        return set1 == set2
+
+    def _compare_course_dicts(self, dict1: Dict[str, List[str]], dict2: Dict[str, List[str]]) -> bool:
+        """Compares two course dictionaries {term_id: [courses]} for equality."""
+        if dict1.keys() != dict2.keys():
+            return False
+        for term_id in dict1:
+            # Compare sorted lists of courses for content equality
+            if sorted(dict1.get(term_id, [])) != sorted(dict2.get(term_id, [])):
+                return False
+        return True
 
     # --- Background Task Management ---
 
@@ -448,7 +480,7 @@ class McMasterTimetableClient:
         # Thread for updating term/course lists
         self.update_thread = threading.Thread(
             target=self._term_course_update_loop,
-            args=(update_interval,),
+            args=(update_interval, 2), # Pass interval and double-check delay (e.g., 2 seconds)
             daemon=True,
             name="TermCourseUpdater"
         )
@@ -466,86 +498,151 @@ class McMasterTimetableClient:
         log.info(f"Started background thread for checking watched courses (Interval: {check_interval}s).")
 
 
-    def _term_course_update_loop(self, interval: int):
+    def _term_course_update_loop(self, interval: int, double_check_delay_s: int):
         """
         Background loop to periodically update terms and courses using the fetcher.
+        Includes a double-check mechanism for changes to avoid transient errors.
         Updates the internal caches. Handles errors gracefully.
+
+        Args:
+            interval: How often to run the update cycle (seconds).
+            double_check_delay_s: How long to wait before performing the second check (seconds).
         """
-        log.info(f"Term/Course Updater thread started. Update interval: {interval}s.")
-        log.info(f"Term/Course Updater: Performing initial check in {interval} seconds...")
-        time.sleep(interval)
+        log.info(f"Term/Course Updater thread started. Update interval: {interval}s, Double-check delay: {double_check_delay_s}s.")
+        # Perform the first update slightly sooner after startup, then use the full interval
+        initial_wait = min(interval, 120) # Wait max 2 mins for the very first run
+        log.info(f"Term/Course Updater: Performing first update in {initial_wait} seconds...")
+        time.sleep(initial_wait)
+
 
         while True:
-            log.info(f"Term/Course Updater: Running update...")
+            log.info(f"Term/Course Updater: Running update cycle...")
             start_time = time.time()
+            term_update_performed = False
+            course_update_performed = False
+
+            # --- 1. Update Terms with Double-Check ---
             try:
-                # Fetch terms using fetcher, update cache
-                fetched_terms = []
-                try:
-                    fetched_terms = self.fetcher.fetch_terms()
-                    if fetched_terms: # Only update if fetch was successful
-                        with self.terms_lock:
-                            old_count = len(self.terms)
-                            self.terms = fetched_terms
-                            new_count = len(self.terms)
-                            if old_count != new_count:
-                                log.info(f"Term/Course Updater: Terms updated. Count changed from {old_count} to {new_count}")
-                            else:
-                                log.debug(f"Term/Course Updater: Terms refreshed. Count remains {new_count}")
-                    else:
-                         log.warning("Term/Course Updater: Fetch terms returned empty list, keeping old list.")
-                except Exception as e:
-                    log.exception("Term/Course Updater: Error during fetch_terms")
-
-
-                # Fetch courses using fetcher for each term, update cache
-                current_terms_ids = []
+                log.debug("Updater: Starting term update process.")
+                # Get current cached terms (read-only)
                 with self.terms_lock:
-                    current_terms_ids = [term['id'] for term in self.terms]
+                    cached_terms = self.terms.copy()
 
-                if current_terms_ids:
-                    fetched_courses: Dict[str, List[str]] = {}
-                    total_courses_fetched = 0
-                    fetch_success = True
+                # --- First Fetch (Terms) ---
+                log.debug("Updater: Performing first term fetch.")
+                fetched_terms_1 = self.fetcher.fetch_terms() # Returns [] on error
+
+                if not fetched_terms_1 and cached_terms: # Fetch failed, but we have cached data
+                     log.warning("Updater: First term fetch failed or returned empty, keeping existing cached terms.")
+                elif not self._compare_term_lists(fetched_terms_1, cached_terms):
+                    log.info("Updater: Potential term change detected on first fetch. Performing double-check...")
+                    time.sleep(double_check_delay_s)
+
+                    # --- Second Fetch (Terms) ---
+                    log.debug("Updater: Performing second term fetch for confirmation.")
+                    fetched_terms_2 = self.fetcher.fetch_terms()
+
+                    if not fetched_terms_2:
+                         log.warning("Updater: Second term fetch failed or returned empty. Change not confirmed. Keeping existing cached terms.")
+                    elif self._compare_term_lists(fetched_terms_1, fetched_terms_2):
+                        # Both fetches match each other, confirming the change from cache
+                        log.info(f"Updater: Term change confirmed by double-check. Updating cache ({len(cached_terms)} -> {len(fetched_terms_1)} terms).")
+                        with self.terms_lock:
+                            self.terms = fetched_terms_1 # Update cache with confirmed data
+                        term_update_performed = True
+                    else:
+                        # First and second fetches differ - transient issue
+                        log.warning("Updater: Term change inconsistent between first and second fetch. Change ignored. Keeping existing cached terms.")
+                else:
+                    # First fetch matches cache - no change needed
+                    log.debug(f"Updater: Terms refreshed, no changes detected compared to cache ({len(cached_terms)} terms).")
+                    # Optional: Update cache anyway to refresh potential minor data? self.terms = fetched_terms_1
+                    term_update_performed = True # Mark as checked successfully even if no change
+
+            except Exception as e:
+                log.exception("Updater: Unhandled error during term update")
+
+
+            # --- 2. Update Courses with Double-Check ---
+            current_terms_ids = []
+            with self.terms_lock:
+                current_terms_ids = [term['id'] for term in self.terms]
+
+            if not current_terms_ids:
+                log.warning("Updater: No terms available in cache to fetch courses for.")
+            else:
+                try:
+                    log.debug("Updater: Starting course update process.")
+                    # Get current cached courses (read-only)
+                    with self.courses_lock:
+                        cached_courses = {k: v.copy() for k, v in self.courses.items()}
+
+                    # --- First Fetch (Courses - All Terms) ---
+                    log.debug("Updater: Performing first course fetch for all terms.")
+                    fetched_courses_1: Dict[str, List[str]] = {}
+                    fetch_1_success_overall = True
                     for term_id in current_terms_ids:
                         try:
                             courses_list = self.fetcher.fetch_courses_for_term(term_id)
-                            fetched_courses[term_id] = courses_list
-                            total_courses_fetched += len(courses_list)
-                            time.sleep(0.2) # Small delay between terms
+                            # Store even if empty, as an empty list is valid data
+                            fetched_courses_1[term_id] = courses_list
+                            # Short delay between term fetches within the attempt
+                            time.sleep(0.1)
                         except Exception as e:
-                             log.error(f"Term/Course Updater: Error fetching courses for term {term_id}: {e}")
-                             fetch_success = False # Mark that at least one term failed
-                             # Continue to next term
+                             log.error(f"Updater: Error during first course fetch for term {term_id}: {e}")
+                             fetch_1_success_overall = False
+                             # Don't break, try fetching other terms
 
-                    # Only update cache if *at least one* term was fetched successfully,
-                    # to avoid wiping cache if all fetches fail temporarily.
-                    # If fetched_courses is empty but fetch_success is true, it means terms exist but have 0 courses.
-                    if fetched_courses or fetch_success:
-                        with self.courses_lock:
-                            old_term_count = len(self.courses)
-                            old_total_courses = sum(len(v) for v in self.courses.values())
-                            self.courses = fetched_courses # Replace entire cache
-                            new_term_count = len(self.courses)
-                            new_total_courses = sum(len(v) for v in self.courses.values())
-                            if old_term_count != new_term_count or old_total_courses != new_total_courses:
-                                log.info(f"Term/Course Updater: Courses updated. Terms: {old_term_count}->{new_term_count}. Total courses: {old_total_courses}->{new_total_courses}")
-                            else:
-                                 log.debug(f"Term/Course Updater: Courses refreshed. Terms: {new_term_count}, Total courses: {new_total_courses}")
-                    else: # fetch_success is False and fetched_courses is empty
-                        log.warning("Term/Course Updater: Failed to fetch courses for *any* term, keeping old course lists.")
-                else:
-                     log.warning("Term/Course Updater: No terms available in cache to fetch courses for.")
+                    if not fetch_1_success_overall and not fetched_courses_1: # Complete failure on first attempt
+                        log.error("Updater: First course fetch failed for all terms. Keeping existing cached courses.")
+                    elif not self._compare_course_dicts(fetched_courses_1, cached_courses):
+                        log.info("Updater: Potential course change detected on first fetch. Performing double-check...")
+                        time.sleep(double_check_delay_s)
+
+                        # --- Second Fetch (Courses - All Terms) ---
+                        log.debug("Updater: Performing second course fetch for confirmation.")
+                        fetched_courses_2: Dict[str, List[str]] = {}
+                        fetch_2_success_overall = True
+                        for term_id in current_terms_ids: # Re-fetch all terms
+                             try:
+                                 courses_list_2 = self.fetcher.fetch_courses_for_term(term_id)
+                                 fetched_courses_2[term_id] = courses_list_2
+                                 time.sleep(0.1)
+                             except Exception as e:
+                                 log.error(f"Updater: Error during *second* course fetch for term {term_id}: {e}")
+                                 fetch_2_success_overall = False
+
+                        if not fetch_2_success_overall and not fetched_courses_2:
+                             log.error("Updater: Second course fetch failed for all terms. Change not confirmed. Keeping existing cached courses.")
+                        elif self._compare_course_dicts(fetched_courses_1, fetched_courses_2):
+                            # Both fetches match each other, confirming the change from cache
+                            old_term_count = len(cached_courses)
+                            old_total_courses = sum(len(v) for v in cached_courses.values())
+                            new_term_count = len(fetched_courses_1)
+                            new_total_courses = sum(len(v) for v in fetched_courses_1.values())
+                            log.info(f"Updater: Course change confirmed by double-check. Updating cache. Terms: {old_term_count}->{new_term_count}, Total courses: {old_total_courses}->{new_total_courses}")
+                            with self.courses_lock:
+                                self.courses = fetched_courses_1 # Update cache
+                            course_update_performed = True
+                        else:
+                             # First and second fetches differ - transient issue
+                             log.warning("Updater: Course change inconsistent between first and second fetch. Change ignored. Keeping existing cached courses.")
+                    else:
+                        # First fetch matches cache - no change needed
+                        log.debug("Updater: Courses refreshed, no changes detected compared to cache.")
+                        course_update_performed = True # Mark as checked successfully
+
+                except Exception as e:
+                    log.exception("Updater: Unhandled error during course update process")
 
 
-                log.info(f"Term/Course Updater: Update finished. (Took {time.time() - start_time:.2f}s)")
-
-            except Exception as e:
-                # Log exceptions but continue running the loop
-                log.exception(f"Term/Course Updater: Unhandled error during periodic update cycle")
+            # --- Cycle Finish ---
+            duration = time.time() - start_time
+            log.info(f"Term/Course Updater: Update cycle finished. Term update attempted: {'Yes' if term_update_performed else 'No/Failed'}, Course update attempted: {'Yes' if course_update_performed else 'No/Failed'}. (Took {duration:.2f}s)")
 
             log.info(f"Term/Course Updater sleeping for {interval} seconds...")
-            time.sleep(interval)
+            time.sleep(interval) # Use the full interval for subsequent runs
+
 
 
     def _watch_check_loop(self, interval: int):
