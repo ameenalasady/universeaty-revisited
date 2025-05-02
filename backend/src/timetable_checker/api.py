@@ -700,31 +700,43 @@ def add_watch_request():
 
     # Simple pre-validation before hitting client logic
     if not isinstance(email, str): # Check type first
+         log.warning(f"/watch request failed: 'email' is not a string ({type(email)}).")
          return jsonify({"error": "Invalid 'email' format (must be a string)."}), 400
     if len(email) > MAX_EMAIL_LENGTH:
+         log.warning(f"/watch request failed: 'email' length ({len(email)}) exceeds limit ({MAX_EMAIL_LENGTH}). Email: {email[:10]}...") # Log prefix
          return jsonify({"error": f"Provided 'email' exceeds maximum length of {MAX_EMAIL_LENGTH} characters."}), 400
     if not is_valid_email(email):
+         log.warning(f"/watch request failed: 'email' format invalid. Email: {email}")
          return jsonify({"error": "Invalid 'email' format."}), 400
 
     if not isinstance(term_id, str): # Check type first
+         log.warning(f"/watch request failed: 'term_id' is not a string ({type(term_id)}).")
          return jsonify({"error": "Invalid 'term_id' format (must be a string)."}), 400
     if len(term_id) > MAX_TERM_ID_LENGTH:
-        return jsonify({"error": f"Provided 'term_id' exceeds maximum length of {MAX_TERM_ID_LENGTH} characters."}), 400
+         log.warning(f"/watch request failed: 'term_id' length ({len(term_id)}) exceeds limit ({MAX_TERM_ID_LENGTH}). Term ID: {term_id}")
+         return jsonify({"error": f"Provided 'term_id' exceeds maximum length of {MAX_TERM_ID_LENGTH} characters."}), 400
     if not term_id.isdigit():
+         log.warning(f"/watch request failed: 'term_id' is not numeric. Term ID: {term_id}")
          return jsonify({"error": "Invalid 'term_id' format (must be numeric string)."}), 400
 
     if not isinstance(course_code, str): # Check type first
+         log.warning(f"/watch request failed: 'course_code' is not a string ({type(course_code)}).")
          return jsonify({"error": "Invalid 'course_code' format (must be a string)."}), 400
     if len(course_code) > MAX_COURSE_CODE_LENGTH:
+         log.warning(f"/watch request failed: 'course_code' length ({len(course_code)}) exceeds limit ({MAX_COURSE_CODE_LENGTH}). Course Code: {course_code[:20]}...") # Log prefix
          return jsonify({"error": f"Provided 'course_code' exceeds maximum length of {MAX_COURSE_CODE_LENGTH} characters."}), 400
     if not course_code.strip():
+         log.warning(f"/watch request failed: 'course_code' is missing or empty.")
          return jsonify({"error": "Missing or empty 'course_code'."}), 400
 
     if not isinstance(section_key, str): # Check type first
+        log.warning(f"/watch request failed: 'section_key' is not a string ({type(section_key)}).")
         return jsonify({"error": "Invalid 'section_key' format (must be a string)."}), 400
     if len(section_key) > MAX_SECTION_KEY_LENGTH:
+        log.warning(f"/watch request failed: 'section_key' length ({len(section_key)}) exceeds limit ({MAX_SECTION_KEY_LENGTH}). Section Key: {section_key[:20]}...") # Log prefix
         return jsonify({"error": f"Provided 'section_key' exceeds maximum length of {MAX_SECTION_KEY_LENGTH} characters."}), 400
     if not section_key.strip():
+        log.warning(f"/watch request failed: 'section_key' is missing or empty.")
         return jsonify({"error": "Missing or empty 'section_key'."}), 400
 
     # Normalize course code for client
