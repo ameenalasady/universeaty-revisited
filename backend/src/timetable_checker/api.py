@@ -38,6 +38,10 @@ from .config import (
     DEFAULT_CHECK_INTERVAL_SECONDS,
     DEFAULT_UPDATE_INTERVAL_SECONDS,
     BASE_URL_MYTIMETABLE,
+    MAX_EMAIL_LENGTH,
+    MAX_TERM_ID_LENGTH,
+    MAX_COURSE_CODE_LENGTH,
+    MAX_SECTION_KEY_LENGTH,
 )
 
 # --- Centralized Logging Setup ---
@@ -655,12 +659,13 @@ def add_watch_request():
         - course_code: Course code string (e.g., "COMPSCI 1JC3").
         - section_key: Unique identifier string for the specific lecture/lab/tutorial section.
     Input Validation: Checks for JSON format, required fields, valid email/term/course/section formats,
-                     term existence, course existence within the term, and email notification system configuration.
-                     **Uses specific exceptions for error handling.**
+                     term existence, course existence within the term, email notification system configuration,
+                     **and input field lengths.**  # <--- Updated docstring
+                     Uses specific exceptions for error handling.
     Responses:
         - 201 Created: {"message": "Successfully added watch request...", "request_id": ...} on new success.
         - 200 OK: {"message": "Successfully reactivated...", "request_id": ...} if request was reactivated.
-        - 400 Bad Request: Invalid JSON, missing fields, invalid data formats (handled by InvalidInputError),
+        - 400 Bad Request: Invalid JSON, missing fields, invalid data formats or lengths (handled by InvalidInputError),
                            term/course/section not found (handled by *NotFoundError),
                            or trying to watch an already open section (handled by SeatsAlreadyOpenError).
         - 409 Conflict: If the user already has a pending watch request (handled by AlreadyPendingError).
@@ -694,13 +699,32 @@ def add_watch_request():
     section_key = data.get("section_key")
 
     # Simple pre-validation before hitting client logic
-    if not isinstance(email, str) or not is_valid_email(email):
+    if not isinstance(email, str): # Check type first
+         return jsonify({"error": "Invalid 'email' format (must be a string)."}), 400
+    if len(email) > MAX_EMAIL_LENGTH:
+         return jsonify({"error": f"Provided 'email' exceeds maximum length of {MAX_EMAIL_LENGTH} characters."}), 400
+    if not is_valid_email(email):
          return jsonify({"error": "Invalid 'email' format."}), 400
-    if not isinstance(term_id, str) or not term_id.isdigit():
+
+    if not isinstance(term_id, str): # Check type first
+         return jsonify({"error": "Invalid 'term_id' format (must be a string)."}), 400
+    if len(term_id) > MAX_TERM_ID_LENGTH:
+        return jsonify({"error": f"Provided 'term_id' exceeds maximum length of {MAX_TERM_ID_LENGTH} characters."}), 400
+    if not term_id.isdigit():
          return jsonify({"error": "Invalid 'term_id' format (must be numeric string)."}), 400
-    if not isinstance(course_code, str) or not course_code.strip():
+
+    if not isinstance(course_code, str): # Check type first
+         return jsonify({"error": "Invalid 'course_code' format (must be a string)."}), 400
+    if len(course_code) > MAX_COURSE_CODE_LENGTH:
+         return jsonify({"error": f"Provided 'course_code' exceeds maximum length of {MAX_COURSE_CODE_LENGTH} characters."}), 400
+    if not course_code.strip():
          return jsonify({"error": "Missing or empty 'course_code'."}), 400
-    if not isinstance(section_key, str) or not section_key.strip():
+
+    if not isinstance(section_key, str): # Check type first
+        return jsonify({"error": "Invalid 'section_key' format (must be a string)."}), 400
+    if len(section_key) > MAX_SECTION_KEY_LENGTH:
+        return jsonify({"error": f"Provided 'section_key' exceeds maximum length of {MAX_SECTION_KEY_LENGTH} characters."}), 400
+    if not section_key.strip():
         return jsonify({"error": "Missing or empty 'section_key'."}), 400
 
     # Normalize course code for client

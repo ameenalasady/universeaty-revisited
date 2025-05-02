@@ -62,6 +62,12 @@ MYTIMETABLE_URL = "https://mytimetable.mcmaster.ca"
 UNIVERSEATY_URL = os.environ.get("UNIVERSEATY_URL", "https://universeaty.ca") # Allow override via .env
 SUPPORT_LINK = os.environ.get("SUPPORT_LINK", "https://ko-fi.com/ameenalasady")
 
+# Input Validation Limits
+MAX_EMAIL_LENGTH = 254 # Standard email length limit
+MAX_TERM_ID_LENGTH = 10 # Should be short (e.g., "3202510")
+MAX_COURSE_CODE_LENGTH = 50 # Generous limit for course codes
+MAX_SECTION_KEY_LENGTH = 100 # Generous limit for section keys
+
 # --- Log Confirmation ---
 # Verify critical variables (optional but helpful for debugging)
 if not EMAIL_SENDER: log.warning("Config: EMAIL_SENDER environment variable not set.")
