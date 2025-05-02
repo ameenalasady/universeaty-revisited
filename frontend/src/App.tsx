@@ -173,16 +173,22 @@ function App() {
       try {
         const fetchedTerms = await getTerms();
         setTerms(fetchedTerms);
-        // Set a default term (prefer Winter > Fall > First)
         if (fetchedTerms.length > 0) {
-          const winter = fetchedTerms.find((t) =>
-            t.name.toLowerCase().includes("winter")
-          );
-          const fall = fetchedTerms.find((t) =>
-            t.name.toLowerCase().includes("fall")
-          );
-          const defaultTermId = winter?.id || fall?.id || fetchedTerms[0].id;
-          setSelectedTerm(defaultTermId);
+          // Sort terms by ID in ascending order.
+          // We assume higher IDs correspond to more recent terms.
+          // Create a copy using [...fetchedTerms] before sorting
+          // to avoid potentially mutating the original array if it's used elsewhere.
+          const sortedTerms = [...fetchedTerms].sort((a, b) => {
+            // Use localeCompare for robust string comparison,
+            // suitable for IDs like "202401", "202309" etc.
+            return a.id.localeCompare(b.id);
+            // If IDs were guaranteed numeric and needed numerical sorting:
+            // return parseInt(a.id, 10) - parseInt(b.id, 10);
+          });
+
+          // The last term in the sorted array has the highest ID
+          const mostRecentTermId = sortedTerms[sortedTerms.length - 1].id;
+          setSelectedTerm(mostRecentTermId);
         } else {
           toast.error("No terms found", {
             description: "Could not load any academic terms from the server.",
@@ -310,12 +316,30 @@ function App() {
    */
   const handleTermChange = useCallback(
     (termId: string) => {
+      // Only proceed if the term actually changed
       if (termId !== selectedTerm) {
+        // 1. Update the selected term
         setSelectedTerm(termId);
-        // State resets dependent on selectedTerm happen in the useEffect hook
+
+        // 2. *** Immediately reset dependent state ***
+        setSelectedCourse("");       // Clear the selected course
+        setCourseDetails(null);     // Clear the details
+        setVisibleCourseCount(INITIAL_COURSE_COUNT); // Reset course list view
+        setCourseSearchQuery("");     // Clear course search
+        setApiError(null);          // Clear any previous API errors
+        if (commandListRef.current) {
+          commandListRef.current.scrollTop = 0; // Reset scroll position
+        }
+        // No need to explicitly set loading states here, the effects will handle it.
+
+        // The useEffect hook listening to `selectedTerm` will still run
+        // to fetch the new courses (or get from cache), but by the time
+        // the details useEffect runs, `selectedCourse` will be ""
+        // and its initial guard condition will prevent the fetch.
       }
     },
-    [selectedTerm] // Dependency: only recreate if selectedTerm changes
+    [selectedTerm] // Dependency: only depends on selectedTerm to compare
+                   // No need to include the setter functions in deps array
   );
 
   const handleCourseSelect = useCallback(
