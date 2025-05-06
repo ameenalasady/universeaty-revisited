@@ -13,9 +13,6 @@ from .config import (
     EMAIL_PASSWORD,
     TEMPLATE_DIR,
     TEMPLATE_FILENAME,
-    MYTIMETABLE_URL,
-    UNIVERSEATY_URL,
-    SUPPORT_LINK,
 )
 
 # Get a logger specific to this module
@@ -68,6 +65,14 @@ def create_notification_email(
     check_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S %Z')
 
     # --- Prepare Context Data for Jinja2 ---
+
+    #    Format the course code for the URL
+    formatted_course_code_for_url = course_code.replace(" ", "-")
+
+    #    Construct the specific MyTimetable URL
+    specific_mytimetable_url = f"https://mytimetable.mcmaster.ca/criteria.jsp?term={term_id}&course_0_0={formatted_course_code_for_url}"
+    log.info(f"Constructed specific MyTimetable URL: {specific_mytimetable_url}")
+
     # This dictionary's keys must match the {{ variables }} in the template
     context = {
         "course_code": course_code,
@@ -78,9 +83,7 @@ def create_notification_email(
         "open_seats": open_seats,
         "check_time_str": check_time_str,
         "request_id": request_id,
-        "MYTIMETABLE_URL": MYTIMETABLE_URL,
-        "UNIVERSEATY_URL": UNIVERSEATY_URL,
-        "SUPPORT_LINK": SUPPORT_LINK
+        "SPECIFIC_MYTIMETABLE_URL": specific_mytimetable_url,
     }
 
     try:
