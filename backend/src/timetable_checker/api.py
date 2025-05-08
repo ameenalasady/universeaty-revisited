@@ -257,8 +257,9 @@ def is_valid_email(email):
     """Basic email format validation using regex."""
     if not email or not isinstance(email, str):
         return False
-    # Regex for common email patterns
-    return re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email) is not None
+    # Stricter regex to disallow consecutive dots in domain and ensure domain labels are valid
+    # This regex is more robust against common invalid patterns like "foo@bar..com"
+    return re.match(r"^[a-zA-Z0-9._%+-]+@(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$", email) is not None
 
 def get_client_or_abort():
     """Checks client availability, returns client instance or error response tuple."""

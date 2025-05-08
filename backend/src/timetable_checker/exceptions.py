@@ -95,6 +95,22 @@ class NotificationSystemError(TimetableCheckerBaseError):
         super().__init__(message)
         self.original_exception = original_exception
 
+class EmailRecipientInvalidError(NotificationSystemError):
+    """Error when an email address is confirmed invalid by the SMTP server."""
+    def __init__(self,
+                 email_address: str,
+                 smtp_error_message: str,
+                 message: Optional[str] = None,
+                 original_exception: Optional[Exception] = None):
+        if message is None:
+            message = f"Email recipient address '{email_address}' is invalid. SMTP server reported: {smtp_error_message}"
+
+        # Call the __init__ of NotificationSystemError, passing the original_exception
+        super().__init__(message=message, original_exception=original_exception) # <-- Pass it here
+
+        self.email_address = email_address
+        self.smtp_error_message = smtp_error_message
+
 class DataNotReadyError(ExternalApiError):
     """Specific error when data (like course lists) hasn't been loaded yet."""
     def __init__(self, resource_type: str = "Data", message=None):

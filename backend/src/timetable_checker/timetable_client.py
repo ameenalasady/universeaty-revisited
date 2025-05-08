@@ -23,7 +23,7 @@ from .request_storage import RequestStorage
 from .exceptions import (
     InvalidInputError, TermNotFoundError, CourseNotFoundError, SectionNotFoundError,
     SeatsAlreadyOpenError, AlreadyPendingError, DatabaseError, ExternalApiError,
-    DataNotReadyError
+    DataNotReadyError, EmailRecipientInvalidError # <-- Added EmailRecipientInvalidError
 )
 
 import logging
@@ -300,7 +300,7 @@ class McMasterTimetableClient:
             requests_by_term[req['term_id']].append(req)
 
         notified_ids: List[int] = []
-        error_ids: List[int] = [] # Will ONLY contain requests where section is confirmed missing
+        error_ids: List[int] = [] # Will ONLY contain requests where section is confirmed missing OR email is permanently invalid
         # Get all valid IDs that were initially pending for this cycle
         all_pending_ids_this_cycle = [req['id'] for req in pending_requests if isinstance(req.get('id'), int)]
 
@@ -415,22 +415,34 @@ class McMasterTimetableClient:
                             subject, html_body = email_content
                             email_sent = False
                             try:
+                                # This call can return True/False or raise EmailRecipientInvalidError
                                 email_sent = email_utils.send_email(email, subject, html_body=html_body)
-                            except Exception as email_send_err:
-                                log.exception(f"Error sending notification email for request ID {req_id}")
-                                continue # Skip marking as notified if send failed
 
-                            if email_sent:
+                            except EmailRecipientInvalidError as invalid_email_err:
+                                log.error(f"Notification failed for request ID {req_id} due to invalid recipient address '{email}': {invalid_email_err}. Marking request as error.")
+                                error_ids.append(req_id)
+                                # email_sent remains False. We do NOT continue here.
+                            except Exception as email_send_err: # Catches other exceptions from send_email
+                                log.exception(f"Error sending notification email for request ID {req_id}")
+                                # Original behavior was 'continue'.
+                                continue # Skip marking as notified or error if unexpected send error occurs
+
+                            if email_sent: # True only if send_email() returned True
                                 notified_ids.append(req_id) # Mark as notified
                             else:
-                                log.error(f"Failed to send notification email for request ID {req_id}. It will remain pending.")
+                                # This 'else' block will execute if:
+                                # - send_email() returned False (e.g. temporary SMTP issue).
+                                # - send_email() raised EmailRecipientInvalidError (email_sent remains False).
+                                # We only want to log "It will remain pending" if it's not already marked for error.
+                                if req_id not in error_ids:
+                                    log.error(f"Failed to send notification email for request ID {req_id}. It will remain pending.")
                         else:
                             log.error(f"Email content generation failed for request ID {req_id}. It will remain pending.")
                     # else: # Seats still closed (current_open_seats == 0)
                     #    pass (request remains pending, last_checked_at updated below)
 
         # --- Update database statuses ---
-        # error_ids now only contains requests where section was confirmed missing.
+        # error_ids now contains requests where section was confirmed missing OR email was permanently invalid.
         # notified_ids contains requests successfully notified.
         # all_pending_ids_this_cycle is used to update last_checked_at for those *still* pending.
         if notified_ids or error_ids or all_pending_ids_this_cycle:
