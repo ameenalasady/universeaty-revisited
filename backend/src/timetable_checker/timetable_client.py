@@ -10,7 +10,7 @@ import concurrent.futures
 
 # Config and Utils
 from .config import (
-    DATABASE_PATH, EMAIL_SENDER, EMAIL_PASSWORD, DEFAULT_CHECK_INTERVAL_SECONDS,
+    DATABASE_PATH, DEFAULT_CHECK_INTERVAL_SECONDS,
     DEFAULT_UPDATE_INTERVAL_SECONDS, BASE_URL_MYTIMETABLE,
     FETCH_DETAILS_TIMEOUT_SECONDS
 )
@@ -23,7 +23,7 @@ from .request_storage import RequestStorage
 from .exceptions import (
     InvalidInputError, TermNotFoundError, CourseNotFoundError, SectionNotFoundError,
     SeatsAlreadyOpenError, AlreadyPendingError, DatabaseError, ExternalApiError,
-    DataNotReadyError, EmailRecipientInvalidError # <-- Added EmailRecipientInvalidError
+    DataNotReadyError, EmailRecipientInvalidError
 )
 
 import logging
@@ -276,8 +276,12 @@ class McMasterTimetableClient:
     def _check_watched_courses(self):
         """
         Checks all pending watch requests using the data fetcher and updates storage.
-        Called by the background check loop. Handles external API errors gracefully,
-        leaving requests pending for retry instead of marking them as error on temporary API issues.
+        Called by the background check loop.
+        - Marks requests as ERROR if their term is no longer in the system's cache.
+        - Keeps requests PENDING if their course is missing from a successful term data fetch.
+        - Marks requests as ERROR if their specific section is missing from a found course.
+        - Marks requests as ERROR if the email recipient is permanently invalid.
+        - Leaves requests PENDING on temporary API/fetch errors for the term.
         Uses an external timeout for fetching course details to prevent stalls.
         """
         log.info("Starting periodic check for watched courses...")
@@ -300,18 +304,28 @@ class McMasterTimetableClient:
             requests_by_term[req['term_id']].append(req)
 
         notified_ids: List[int] = []
-        error_ids: List[int] = [] # Will ONLY contain requests where section is confirmed missing OR email is permanently invalid
-        # Get all valid IDs that were initially pending for this cycle
+        error_ids: List[int] = []
         all_pending_ids_this_cycle = [req['id'] for req in pending_requests if isinstance(req.get('id'), int)]
 
-        # --- Use ThreadPoolExecutor for timeout ---
-        # Create executor with max_workers=1 to process terms sequentially
-        # while still enabling timeout control through ThreadPoolExecutor
+        # Get current known terms from cache once for this check cycle
+        current_cached_terms_map: Dict[str, TermInfo] = {term['id']: term for term in self.get_terms()}
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="DetailFetcher") as executor:
             # Process requests term by term
             for term_id, term_requests in requests_by_term.items():
+                # --- CHECK 1: Is the term itself still considered valid by our system (present in cache)? ---
+                if term_id not in current_cached_terms_map:
+                    log.warning(f"Term ID '{term_id}' (associated with {len(term_requests)} pending requests) "
+                                f"is no longer found in the system's cached terms. Marking these requests as error.")
+                    for req in term_requests:
+                        if isinstance(req.get('id'), int):
+                            error_ids.append(req['id'])
+                    continue # Move to the next term_id in requests_by_term
+
+                # Term is known to the system, proceed to fetch details
                 unique_course_codes = sorted(list(set(req['course_code'] for req in term_requests)))
-                if not unique_course_codes: continue
+                if not unique_course_codes:
+                    continue
 
                 log.info(f"Checking details for Term={term_id} ({len(unique_course_codes)} unique courses, {len(term_requests)} requests)...")
 
@@ -329,30 +343,22 @@ class McMasterTimetableClient:
                     # The fetcher should ideally return {} onhandled errors, not raise them here unless it's unhandled.
                     log.debug(f"Successfully fetched details for Term={term_id}.")
                     fetch_successful = True
-
                 except concurrent.futures.TimeoutError:
-                    future.cancel()  # Cancel the future to prevent hanging threads
-                    log.error(f"Timeout ({FETCH_DETAILS_TIMEOUT_SECONDS}s) exceeded while fetching batch details for Term {term_id}. Skipping term for this cycle. Requests remain pending.")
-                    # fetch_successful remains False
-
+                    future.cancel()
+                    log.error(f"Timeout ({FETCH_DETAILS_TIMEOUT_SECONDS}s) exceeded while fetching batch details for Term {term_id}. "
+                              f"Skipping term for this cycle. Requests remain pending.")
                 except requests.exceptions.RequestException as req_err:
-                    # Exception happened *inside* the fetcher call but propagated
-                    log.error(f"Network error during fetch task for Term {term_id}: {req_err}. Skipping term for this cycle. Requests remain pending.")
-                    # fetch_successful remains False
-
+                    log.error(f"Network error during fetch task for Term {term_id}: {req_err}. "
+                              f"Skipping term for this cycle. Requests remain pending.")
                 except Exception as e:
-                    # Other unexpected error happened *inside* the fetcher call
-                    log.exception(f"Unexpected error during fetch task for Term {term_id}. Skipping term for this cycle. Requests remain pending.")
-                    # fetch_successful remains False
+                    log.exception(f"Unexpected error during fetch task for Term {term_id}. "
+                                  f"Skipping term for this cycle. Requests remain pending.")
 
-                # --- IMPORTANT: Only proceed if the fetch was successful ---
                 if not fetch_successful:
-                    # Leave the requests associated with this term as 'pending' in the DB
                     log.warning(f"Skipping checks for term {term_id} this cycle due to fetch failure.")
-                    continue # Skip to the next term
+                    continue # Skip to the next term_id
 
-                # --- Check each individual request (ONLY if fetch succeeded) ---
-                # This part only runs if the fetch succeeded within the timeout
+                # --- Fetch was successful for the term, now check individual requests ---
                 for req in term_requests:
                     req_id = req.get('id')
                     if not isinstance(req_id, int):
@@ -364,46 +370,47 @@ class McMasterTimetableClient:
                     section_display = req['section_display']
                     email = req['email']
 
-                    # Check if details were retrieved for this specific course within the successful batch fetch
+                    # --- CHECK 2: Is the course found in the (successfully) fetched details for this term? ---
                     if course_code not in term_course_details or not term_course_details[course_code]:
-                        # This indicates an inconsistency: batch fetch succeeded overall, but data for THIS course is missing.
-                        # This could mean the course itself vanished between the cache update and now,
-                        # or the API returned partial data. Treat as section not found / error for THIS request.
-                        log.warning(f"Details for watched course {course_code} (Term {term_id}) missing from SUCCESSFUL fetch result. Request ID: {req_id}. Marking as error.")
-                        error_ids.append(req_id) # Mark this specific request as error
-                        continue
+                        # Course is missing from a successful term data fetch.
+                        # Per requirement, DO NOT mark as error. Request remains pending.
+                        log.warning(f"Details for watched course {course_code} (Term {term_id}, Request ID: {req_id}) "
+                                    f"missing from fetch result. Course may no longer be offered or data is temporarily incomplete. "
+                                    f"Request remains pending.")
+                        continue # Process next request in this term
 
-                    # Find section and check seats (existing logic)
+                    # Course details found. Now check for the section.
                     course_sections = term_course_details[course_code]
                     section_exists = False
                     current_open_seats = -1
                     for block_type, sections_list in course_sections.items():
-                        for section in sections_list:
-                            if section['key'] == section_key:
+                        for section_info in sections_list: # Renamed 'section' to 'section_info' to avoid conflict
+                            if section_info['key'] == section_key:
                                 section_exists = True
-                                current_open_seats = section['open_seats']
+                                current_open_seats = section_info['open_seats']
                                 break
                         if section_exists: break
 
+                    # --- CHECK 3: Is the specific section itself found? ---
                     if not section_exists:
-                         log.warning(f"Watched section {section_display} ({section_key}) for {course_code} no longer exists in term {term_id}. Marking as error. Request ID: {req_id}.")
-                         error_ids.append(req_id) # Correctly mark as error
-                         continue
+                         # Section is missing, but term and course were present in fetched data.
+                         # This is a specific "error" for this watch request.
+                         log.warning(f"Watched section {section_display} ({section_key}) for {course_code} "
+                                     f"no longer exists in term {term_id}. Marking as error. Request ID: {req_id}.")
+                         error_ids.append(req_id) # Mark as error if section is gone
+                         continue # Process next request
 
-                    # --- Process open seats ---
+                    # Section exists. Check seats and notify if open.
                     if current_open_seats > 0:
-                        log.info(f"Open seats found for {course_code} {section_display} ({section_key})! Seats: {current_open_seats}. Notifying {email} (Request ID: {req_id}).")
+                        log.info(f"Open seats found for {course_code} {section_display} ({section_key})! Seats: {current_open_seats}. "
+                                 f"Notifying {email} (Request ID: {req_id}).")
 
-                        # Prepare and send email (existing logic using email_utils)
-                        term_name = f"Term ID {term_id}"
-                        with self.terms_lock:
-                            term_info = next((t for t in self.terms if t['id'] == term_id), None)
-                            if term_info: term_name = term_info['name']
+                        term_name_for_email = current_cached_terms_map.get(term_id, {}).get('name', f"Term ID {term_id}")
 
                         email_content = None
                         try:
                             email_content = email_utils.create_notification_email(
-                                course_code=course_code, term_name=term_name, term_id=term_id,
+                                course_code=course_code, term_name=term_name_for_email, term_id=term_id,
                                 section_display=section_display, section_key=section_key,
                                 open_seats=current_open_seats, request_id=req_id
                             )
@@ -413,33 +420,25 @@ class McMasterTimetableClient:
 
                         if email_content:
                             subject, html_body = email_content
-                            email_sent = False
+                            email_sent_successfully = False
                             try:
-                                # This call can return True/False or raise EmailRecipientInvalidError
-                                email_sent = email_utils.send_email(email, subject, html_body=html_body)
-
+                                email_sent_successfully = email_utils.send_email(email, subject, html_body=html_body)
                             except EmailRecipientInvalidError as invalid_email_err:
-                                log.error(f"Notification failed for request ID {req_id} due to invalid recipient address '{email}': {invalid_email_err}. Marking request as error.")
+                                log.error(f"Notification failed for request ID {req_id} due to invalid recipient address '{email}': "
+                                          f"{invalid_email_err}. Marking request as error.")
                                 error_ids.append(req_id)
-                                # email_sent remains False. We do NOT continue here.
-                            except Exception as email_send_err: # Catches other exceptions from send_email
+                            except Exception as email_send_err:
                                 log.exception(f"Error sending notification email for request ID {req_id}")
-                                # Original behavior was 'continue'.
-                                continue # Skip marking as notified or error if unexpected send error occurs
+                                # For other send errors (temporary), leave request pending.
 
-                            if email_sent: # True only if send_email() returned True
-                                notified_ids.append(req_id) # Mark as notified
-                            else:
-                                # This 'else' block will execute if:
-                                # - send_email() returned False (e.g. temporary SMTP issue).
-                                # - send_email() raised EmailRecipientInvalidError (email_sent remains False).
-                                # We only want to log "It will remain pending" if it's not already marked for error.
-                                if req_id not in error_ids:
-                                    log.error(f"Failed to send notification email for request ID {req_id}. It will remain pending.")
+                            if email_sent_successfully:
+                                notified_ids.append(req_id)
+                            elif req_id not in error_ids: # If not already marked as error (e.g. for invalid recipient)
+                                log.error(f"Failed to send notification email for request ID {req_id} (temporary issue?). "
+                                          f"It will remain pending.")
                         else:
                             log.error(f"Email content generation failed for request ID {req_id}. It will remain pending.")
-                    # else: # Seats still closed (current_open_seats == 0)
-                    #    pass (request remains pending, last_checked_at updated below)
+                    # else: seats are still closed (current_open_seats <= 0), request remains pending.
 
         # --- Update database statuses ---
         # error_ids now contains requests where section was confirmed missing OR email was permanently invalid.
@@ -447,8 +446,6 @@ class McMasterTimetableClient:
         # all_pending_ids_this_cycle is used to update last_checked_at for those *still* pending.
         if notified_ids or error_ids or all_pending_ids_this_cycle:
              try:
-                 # The storage function should correctly handle updating last_checked_at for
-                 # items in checked_ids that are NOT in notified_ids or error_ids
                  self.storage.update_request_statuses(
                      notified_ids=notified_ids,
                      error_ids=error_ids,
@@ -515,141 +512,195 @@ class McMasterTimetableClient:
         Background loop to periodically update terms and courses using the fetcher.
         Includes a double-check mechanism for changes to avoid transient errors.
         Updates the internal caches. Handles errors gracefully.
+        - If term fetches consistently return empty while cache had data, cache is preserved.
+        - Similar logic is applied to course data for known terms.
 
         Args:
             interval: How often to run the update cycle (seconds).
             double_check_delay_s: How long to wait before performing the second check (seconds).
         """
         log.info(f"Term/Course Updater thread started. Update interval: {interval}s, Double-check delay: {double_check_delay_s}s.")
-        # Perform the first update slightly sooner after startup, then use the full interval
-        log.info(f"Term/Course Updater: Performing first update in {interval} seconds...")
-        time.sleep(interval)
-
+        # Perform the first update slightly sooner after startup, then use the full interval.
+        # The initial sleep is handled by the fact that this loop runs, then sleeps at the end.
+        # For the very first run after app start, an initial population is done in _initialize().
+        # This loop is for periodic *updates*.
+        log.info(f"Term/Course Updater: First periodic update will occur in approximately {interval} seconds after initial data load completes.")
+        time.sleep(interval) # Initial sleep before the very first periodic run
 
         while True:
             log.info(f"Term/Course Updater: Running update cycle...")
             start_time = time.time()
-            term_update_performed = False
-            course_update_performed = False
+            term_update_check_completed = False # Tracks if the term check logic completed (not necessarily if cache was written)
+            course_update_check_completed = False # Tracks for courses
 
             # --- 1. Update Terms with Double-Check ---
             try:
                 log.debug("Updater: Starting term update process.")
-                # Get current cached terms (read-only)
                 with self.terms_lock:
-                    cached_terms = self.terms.copy()
+                    cached_terms = self.terms.copy() # Get current cached terms
 
                 # --- First Fetch (Terms) ---
                 log.debug("Updater: Performing first term fetch.")
-                fetched_terms_1 = self.fetcher.fetch_terms() # Returns [] on error
+                fetched_terms_1 = self.fetcher.fetch_terms() # Returns [] on error or if genuinely empty
 
-                if not fetched_terms_1 and cached_terms: # Fetch failed, but we have cached data
-                     log.warning("Updater: First term fetch failed or returned empty, keeping existing cached terms.")
-                elif not self._compare_term_lists(fetched_terms_1, cached_terms):
-                    log.info("Updater: Potential term change detected on first fetch. Performing double-check...")
+                if not self._compare_term_lists(fetched_terms_1, cached_terms):
+                    # Potential change detected. This condition is true if:
+                    # 1. fetched_terms_1 is different from cached_terms (e.g., items added/removed/changed).
+                    # 2. fetched_terms_1 is empty, but cached_terms was not (source down?).
+                    # 3. cached_terms was empty, but fetched_terms_1 is not (source recovered/initial population).
+                    log.info(f"Updater: Potential term change detected or discrepancy with cache (Cache: {len(cached_terms)}, Fetched: {len(fetched_terms_1)}). Performing double-check...")
                     time.sleep(double_check_delay_s)
 
                     # --- Second Fetch (Terms) ---
                     log.debug("Updater: Performing second term fetch for confirmation.")
                     fetched_terms_2 = self.fetcher.fetch_terms()
 
-                    if not fetched_terms_2:
-                         log.warning("Updater: Second term fetch failed or returned empty. Change not confirmed. Keeping existing cached terms.")
-                    elif self._compare_term_lists(fetched_terms_1, fetched_terms_2):
-                        # Both fetches match each other, confirming the change from cache
-                        log.info(f"Updater: Term change confirmed by double-check. Updating cache ({len(cached_terms)} -> {len(fetched_terms_1)} terms).")
-                        with self.terms_lock:
-                            self.terms = fetched_terms_1 # Update cache with confirmed data
-                        term_update_performed = True
+                    if self._compare_term_lists(fetched_terms_1, fetched_terms_2):
+                        # Both fetches are consistent with each other.
+                        # Now, decide if this consistent result should update the cache.
+                        if not fetched_terms_1 and cached_terms: # Note: fetched_terms_1 is the same as fetched_terms_2 here
+                            # Both fetches returned empty, but the cache was NOT empty.
+                            # This is the "site down" or "site temporarily has no terms" scenario.
+                            # We preserve the existing cache.
+                            log.warning("Updater: Term update double-check confirmed an empty term list, but cache was not empty. "
+                                        "Assuming source is temporarily unavailable or has no terms listed. "
+                                        "Keeping existing cached terms.")
+                            term_update_check_completed = True # Signifies the check logic completed for terms
+                        else:
+                            # Fetches are consistent AND (either they are not empty, OR cache was also empty and fetched is also empty).
+                            # This is a legitimate update.
+                            log.info(f"Updater: Term change confirmed by double-check. Updating cache (Old: {len(cached_terms)} -> New: {len(fetched_terms_1)} terms).")
+                            with self.terms_lock:
+                                self.terms = fetched_terms_1 # Update cache with confirmed data
+                            term_update_check_completed = True
                     else:
-                        # First and second fetches differ - transient issue
-                        log.warning("Updater: Term change inconsistent between first and second fetch. Change ignored. Keeping existing cached terms.")
+                        # First and second fetches differ - transient issue or flapping.
+                        log.warning("Updater: Term data inconsistent between first and second fetch. "
+                                    "Change ignored for this cycle. Keeping existing cached terms.")
+                        term_update_check_completed = True # Signifies the check logic completed
                 else:
-                    # First fetch matches cache - no change needed
+                    # First fetch matches cache - no change needed.
                     log.debug(f"Updater: Terms refreshed, no changes detected compared to cache ({len(cached_terms)} terms).")
-                    # Optional: Update cache anyway to refresh potential minor data? self.terms = fetched_terms_1
-                    term_update_performed = True # Mark as checked successfully even if no change
+                    term_update_check_completed = True # Mark as checked successfully
 
             except Exception as e:
-                log.exception("Updater: Unhandled error during term update")
+                log.exception("Updater: Unhandled error during term update process.")
+                # term_update_check_completed remains False if an exception occurred before logical completion
 
 
             # --- 2. Update Courses with Double-Check ---
-            current_terms_ids = []
-            with self.terms_lock:
-                current_terms_ids = [term['id'] for term in self.terms]
+            current_terms_ids_for_courses = []
+            if term_update_check_completed: # Only proceed if term check logic finished
+                with self.terms_lock: # Use the potentially updated terms
+                    current_terms_ids_for_courses = [term['id'] for term in self.terms]
 
-            if not current_terms_ids:
-                log.warning("Updater: No terms available in cache to fetch courses for.")
-            else:
+            if not current_terms_ids_for_courses:
+                if term_update_check_completed:
+                    log.warning("Updater: No terms available in current cache (or terms legitimately became empty) to fetch courses for.")
+                    course_update_check_completed = True # No courses to check, so this part is 'complete'
+                else:
+                    log.warning("Updater: Term update check did not complete successfully; skipping course updates for potentially stale/empty term list.")
+                    # course_update_check_completed remains False
+            else: # current_terms_ids_for_courses has content
                 try:
-                    log.debug("Updater: Starting course update process.")
-                    # Get current cached courses (read-only)
+                    log.debug(f"Updater: Starting course update process for {len(current_terms_ids_for_courses)} terms.")
                     with self.courses_lock:
                         cached_courses = {k: v.copy() for k, v in self.courses.items()}
 
-                    # --- First Fetch (Courses - All Terms) ---
-                    log.debug("Updater: Performing first course fetch for all terms.")
+                    # --- First Fetch (Courses - All Terms based on current_terms_ids_for_courses) ---
+                    log.debug("Updater: Performing first course fetch for all current terms.")
                     fetched_courses_1: Dict[str, List[str]] = {}
-                    fetch_1_success_overall = True
-                    for term_id in current_terms_ids:
+                    # Ensure all terms in current_terms_ids_for_courses get an entry in fetched_courses_1,
+                    # even if their fetch fails (value might be None or missing then, handled later)
+                    for term_id in current_terms_ids_for_courses:
                         try:
                             courses_list = self.fetcher.fetch_courses_for_term(term_id)
-                            # Store even if empty, as an empty list is valid data
-                            fetched_courses_1[term_id] = courses_list
-                            # Short delay between term fetches within the attempt
-                            time.sleep(0.1)
+                            fetched_courses_1[term_id] = courses_list # Store even if empty list
+                            time.sleep(0.1) # Small polite delay
                         except Exception as e:
-                             log.error(f"Updater: Error during first course fetch for term {term_id}: {e}")
-                             fetch_1_success_overall = False
-                             # Don't break, try fetching other terms
+                             log.error(f"Updater: Error during first course fetch for term {term_id}: {e}. This term might be missing from fetched_courses_1.")
+                             # We don't set overall failure here, _compare_course_dicts will handle discrepancies
 
-                    if not fetch_1_success_overall and not fetched_courses_1: # Complete failure on first attempt
-                        log.error("Updater: First course fetch failed for all terms. Keeping existing cached courses.")
-                    elif not self._compare_course_dicts(fetched_courses_1, cached_courses):
-                        log.info("Updater: Potential course change detected on first fetch. Performing double-check...")
+                    if not self._compare_course_dicts(fetched_courses_1, cached_courses):
+                        # Potential change, or discrepancy due to partial fetch success/failure
+                        log.info(f"Updater: Potential course change detected or discrepancy with cache. "
+                                 f"(Cache terms with courses: {len(cached_courses)}, Fetched terms with courses this attempt: {len(fetched_courses_1)}). "
+                                 f"Performing double-check...")
                         time.sleep(double_check_delay_s)
 
                         # --- Second Fetch (Courses - All Terms) ---
                         log.debug("Updater: Performing second course fetch for confirmation.")
                         fetched_courses_2: Dict[str, List[str]] = {}
-                        fetch_2_success_overall = True
-                        for term_id in current_terms_ids: # Re-fetch all terms
+                        for term_id in current_terms_ids_for_courses: # Re-fetch for all current terms
                              try:
                                  courses_list_2 = self.fetcher.fetch_courses_for_term(term_id)
                                  fetched_courses_2[term_id] = courses_list_2
                                  time.sleep(0.1)
                              except Exception as e:
-                                 log.error(f"Updater: Error during *second* course fetch for term {term_id}: {e}")
-                                 fetch_2_success_overall = False
+                                 log.error(f"Updater: Error during *second* course fetch for term {term_id}: {e}. This term might be missing from fetched_courses_2.")
 
-                        if not fetch_2_success_overall and not fetched_courses_2:
-                             log.error("Updater: Second course fetch failed for all terms. Change not confirmed. Keeping existing cached courses.")
-                        elif self._compare_course_dicts(fetched_courses_1, fetched_courses_2):
-                            # Both fetches match each other, confirming the change from cache
-                            old_term_count = len(cached_courses)
-                            old_total_courses = sum(len(v) for v in cached_courses.values())
-                            new_term_count = len(fetched_courses_1)
-                            new_total_courses = sum(len(v) for v in fetched_courses_1.values())
-                            log.info(f"Updater: Course change confirmed by double-check. Updating cache. Terms: {old_term_count}->{new_term_count}, Total courses: {old_total_courses}->{new_total_courses}")
-                            with self.courses_lock:
-                                self.courses = fetched_courses_1 # Update cache
-                            course_update_performed = True
+                        if self._compare_course_dicts(fetched_courses_1, fetched_courses_2):
+                            # Both course fetches are consistent with each other.
+                            # Now, apply the "don't wipe if fetched empty but cache wasn't" logic.
+
+                            # Check if the consistent fetched result is effectively empty for all terms.
+                            # This means all lists in fetched_courses_1 (and fetched_courses_2) are empty,
+                            # OR some terms might be missing from the fetch if their individual fetch failed both times.
+                            # We primarily care if the *overall data content* is empty.
+                            is_fetched_content_empty = not any(fetched_courses_1.get(tid) for tid in current_terms_ids_for_courses if fetched_courses_1.get(tid) is not None)
+
+                            # Check if the cache had actual course data for any of the current terms.
+                            had_cached_content = any(cached_courses.get(tid) for tid in current_terms_ids_for_courses if cached_courses.get(tid) is not None)
+
+                            if is_fetched_content_empty and had_cached_content:
+                                # Fetched result is empty for all current terms, but cache previously had course data for these terms.
+                                # Assume source is temporarily not listing courses for these terms. Preserve cache.
+                                log.warning("Updater: Course update double-check confirmed an empty set of course lists for current terms, "
+                                            "but cache previously had course data for these terms. Assuming source is temporarily not listing courses. "
+                                            "Keeping existing cached courses for these terms.")
+                                course_update_check_completed = True
+                            else:
+                                # Legitimate update for courses (changed, or genuinely became empty and cache should reflect that).
+                                # Or, cache was empty and fetch is also empty/has new data.
+                                old_term_count_courses = len(cached_courses)
+                                old_total_courses_val = sum(len(v) for v in cached_courses.values() if v) # Sum lengths of non-None lists
+                                new_term_count_courses = len(fetched_courses_1)
+                                new_total_courses_val = sum(len(v) for v in fetched_courses_1.values() if v)
+
+                                log.info(f"Updater: Course data change confirmed by double-check for current terms. Updating cache. "
+                                         f"Terms with courses in cache: {old_term_count_courses} -> {new_term_count_courses} (in fetch for current terms), "
+                                         f"Total courses in cache: {old_total_courses_val} -> {new_total_courses_val} (in fetch for current terms)")
+                                with self.courses_lock:
+                                    # Prune old terms from courses cache if they are no longer in current_terms_ids_for_courses
+                                    for term_id_in_cache in list(self.courses.keys()): # Iterate over a copy of keys
+                                        if term_id_in_cache not in current_terms_ids_for_courses:
+                                            log.info(f"Updater: Removing course data for obsolete term '{term_id_in_cache}' from course cache.")
+                                            del self.courses[term_id_in_cache]
+                                    # Update/add course data for current terms
+                                    for term_id, courses_list in fetched_courses_1.items():
+                                        if term_id in current_terms_ids_for_courses : # Ensure we only update for terms we intended to check
+                                            self.courses[term_id] = courses_list
+                                course_update_check_completed = True
                         else:
-                             # First and second fetches differ - transient issue
-                             log.warning("Updater: Course change inconsistent between first and second fetch. Change ignored. Keeping existing cached courses.")
+                             # First and second course fetches are inconsistent.
+                             log.warning("Updater: Course data inconsistent between first and second fetch for current terms. "
+                                         "Change ignored for this cycle. Keeping existing cached courses.")
+                             course_update_check_completed = True
                     else:
-                        # First fetch matches cache - no change needed
-                        log.debug("Updater: Courses refreshed, no changes detected compared to cache.")
-                        course_update_performed = True # Mark as checked successfully
+                        # First course fetch matches cache for current terms - no change needed.
+                        log.debug("Updater: Courses refreshed for current terms, no changes detected compared to cache.")
+                        course_update_check_completed = True
 
                 except Exception as e:
-                    log.exception("Updater: Unhandled error during course update process")
-
+                    log.exception("Updater: Unhandled error during course update process.")
+                    # course_update_check_completed remains False
 
             # --- Cycle Finish ---
             duration = time.time() - start_time
-            log.info(f"Term/Course Updater: Update cycle finished. Term update attempted: {'Yes' if term_update_performed else 'No/Failed'}, Course update attempted: {'Yes' if course_update_performed else 'No/Failed'}. (Took {duration:.2f}s)")
+            log.info(f"Term/Course Updater: Update cycle finished. "
+                     f"Term check completed: {'Yes' if term_update_check_completed else 'No/Failed'}, "
+                     f"Course check completed: {'Yes' if course_update_check_completed else 'No/Failed'}. "
+                     f"(Took {duration:.2f}s)")
 
             log.info(f"Term/Course Updater sleeping for {interval} seconds...")
             time.sleep(interval)
