@@ -30,6 +30,7 @@ export interface CourseDetailsSection {
     block_type: string;
     key: string;
     open_seats: number;
+    total_seats: number;
     section: string;
 }
 

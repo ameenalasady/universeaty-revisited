@@ -27,7 +27,7 @@ const SectionBlock: React.FC<SectionBlockProps> = ({
           <TableRow>
             <TableHead className="w-[100px]">Section</TableHead>
             <TableHead className="w-[120px]">Key</TableHead>
-            <TableHead className="text-center w-[120px]">Status</TableHead>
+            <TableHead className="text-center w-[140px]">Availability</TableHead>
             <TableHead className="text-right w-[80px]">Watch</TableHead>
           </TableRow>
         </TableHeader>

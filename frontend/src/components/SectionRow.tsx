@@ -23,11 +23,12 @@ const SectionRow: React.FC<SectionRowProps> = ({ section, onWatchClick, isWatchD
         <Badge
           variant={section.open_seats <= 0 ? "destructive" : "default"}
           className={cn(
+            "text-xs font-medium px-3 py-1",
             section.open_seats > 0 &&
               "border-transparent bg-green-100 text-green-800 hover:bg-green-100/80 dark:bg-green-900 dark:text-green-200 dark:hover:bg-green-900/80"
           )}
         >
-          {section.open_seats > 0 ? `${section.open_seats} Open` : "Full"}
+          {section.open_seats} / {section.total_seats} seats
         </Badge>
       </TableCell>
       <TableCell className="text-right">

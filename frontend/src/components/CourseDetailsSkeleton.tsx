@@ -39,8 +39,8 @@ const CourseDetailsSkeleton: React.FC = () => (
               <TableHead className="w-[120px]">
                 <Skeleton className="h-4 w-20 rounded" />
               </TableHead>
-              <TableHead className="text-center w-[120px]">
-                <Skeleton className="h-4 w-16 mx-auto rounded" />
+              <TableHead className="text-center w-[140px]">
+                <Skeleton className="h-4 w-24 mx-auto rounded" />
               </TableHead>
               <TableHead className="text-right w-[80px]">
                 <Skeleton className="h-4 w-12 ml-auto rounded" />
@@ -63,9 +63,9 @@ const CourseDetailsSkeleton: React.FC = () => (
                     className={`h-5 w-${j === 1 ? "11/12" : "full"} rounded`}
                   />
                 </TableCell>
-                {/* Status Badge Cell */}
+                {/* Availability Text Cell */}
                 <TableCell className="text-center">
-                  <Skeleton className="h-6 w-16 mx-auto rounded-full" />
+                  <Skeleton className="h-5 w-20 mx-auto rounded-md" />
                 </TableCell>
                 {/* Watch Button Cell */}
                 <TableCell className="text-right">
