@@ -46,8 +46,27 @@ export interface WatchRequestPayload {
 
 export interface WatchResponse {
     message?: string; // Optional success message
-    error?: string;   // Optional error message
+    // error?: string; // No longer needed here if we throw errors
 }
+
+/**
+ * === Custom API Error Class ===
+ * Extends the native Error class to include HTTP status and original error data.
+ */
+export class ApiError extends Error {
+  status: number;
+  data: any;
+
+  constructor(message: string, status: number, data: any) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.data = data;
+    // Set the prototype explicitly for TypeScript compilation targets < ES6
+    Object.setPrototypeOf(this, ApiError.prototype);
+  }
+}
+
 
 /**
  * === Generic Response Handler ===
@@ -55,14 +74,14 @@ export interface WatchResponse {
  * It checks if the response status indicates success (`response.ok`).
  * If successful, it parses the JSON body and returns it.
  * If not successful, it attempts to parse the error details from the JSON body,
- * logs the error, and throws a structured Error object containing the message,
+ * logs the error, and throws a structured ApiError object containing the message,
  * status code, and original error data for better error handling upstream.
  * Includes a fallback if the error response body is not valid JSON.
  *
  * @template T The expected type of the successful JSON response.
  * @param {Response} response The raw Response object from a fetch call.
  * @returns {Promise<T>} A promise resolving to the parsed JSON data of type T.
- * @throws {Error} Throws an error if the response status is not OK, attaching status and data.
+ * @throws {ApiError} Throws an ApiError if the response status is not OK, attaching status and data.
  */
 async function handleResponse<T>(response: Response): Promise<T> {
     if (!response.ok) {
@@ -72,11 +91,12 @@ async function handleResponse<T>(response: Response): Promise<T> {
         }));
         console.error("API Error Response:", errorData);
 
-        // Create a structured error object
-        const error = new Error(errorData.error || `HTTP error! status: ${response.status}`);
-        (error as any).status = response.status; // Attach HTTP status code
-        (error as any).data = errorData;         // Attach the full error payload
-        throw error; // Propagate the error for catching in API functions
+        // Create and throw a structured ApiError object
+        throw new ApiError(
+            errorData.error || `HTTP error! status: ${response.status}`,
+            response.status,
+            errorData
+        );
     }
     // If response is OK, parse and return JSON body
     return response.json() as Promise<T>;
@@ -124,14 +144,8 @@ export const getCourses = async (termId: string): Promise<string[]> => {
         console.warn(`Course list for term ${termId} not found or not ready.`);
         return []; // Return empty array, let UI decide how to handle
     }
-     // Special handling for 503, which *definitely* means data isn't ready yet
-     if (response.status === 503) {
-        console.warn(`Course list for term ${termId} currently unavailable (503).`);
-        // Optionally, you could throw an error here or return a specific signal
-        // For now, returning empty array similar to 404 might be acceptable UI-wise
-        return [];
-    }
-    // For other statuses (200 OK or other errors), use handleResponse
+    // For other statuses (200 OK or other errors, including 503), use handleResponse
+    // If 503 occurs, handleResponse will throw an error.
     return handleResponse<string[]>(response);
 };
 
@@ -157,13 +171,8 @@ export const getCourseDetails = async (termId: string, courseCode: string): Prom
         console.warn(`Details for course ${courseCode} in term ${termId} not found (404).`);
         return {}; // Return empty object signifies not found
     }
-    // Special handling for 503 (service unavailable, likely data not ready yet)
-     if (response.status === 503) {
-        console.warn(`Details for course ${courseCode} in term ${termId} currently unavailable (503).`);
-        // Return empty object signifies unavailable state
-        return {};
-    }
-    // For other statuses, use handleResponse
+    // For other statuses (200 OK or other errors, including 503), use handleResponse
+    // If 503 occurs, handleResponse will throw an error.
     return handleResponse<CourseDetails>(response);
 };
 
@@ -171,14 +180,14 @@ export const getCourseDetails = async (termId: string, courseCode: string): Prom
  * === API Function: Add Watch Request ===
  * Sends a POST request to the `/watch` endpoint to add a new course watch request.
  * Includes the payload (email, term, course, section key) in the request body as JSON.
- * This function handles both successful (2xx) and error (non-2xx) responses differently
- * than the generic `handleResponse` because even on logical failures (like duplicate request,
- * returned as 409 or 400), the API call itself might succeed. It returns a `WatchResponse`
- * object containing either a `message` on success or an `error` string on failure.
- * It also includes a try-catch block for network errors during the fetch itself.
+ * This function will now throw an error on failure, to be caught by React Query's `useMutation`.
+ * It returns a `WatchResponse` object containing a `message` on success.
+ * It also includes a try-catch block for network errors during the fetch itself,
+ * which will also be re-thrown.
  *
  * @param {WatchRequestPayload} payload The data for the watch request.
- * @returns {Promise<WatchResponse>} A promise resolving to a WatchResponse object indicating success or failure.
+ * @returns {Promise<WatchResponse>} A promise resolving to a WatchResponse object indicating success.
+ * @throws {Error} Throws an error if the API call fails or a network error occurs.
  */
 export const addWatchRequest = async (payload: WatchRequestPayload): Promise<WatchResponse> => {
      try {
@@ -190,28 +199,38 @@ export const addWatchRequest = async (payload: WatchRequestPayload): Promise<Wat
             body: JSON.stringify(payload), // Send data as JSON string
         });
 
-        // Handle successful responses (e.g., 201 Created)
-        if (response.ok) {
-             // Expecting { message: "..." } from backend on success
-             return await response.json() as WatchResponse;
-        } else {
-            // Handle application-level errors returned by the backend (e.g., 400, 409, 500, 503)
+        // Handle non-successful responses (e.g., 400, 409, 500, 503)
+        // This now uses handleResponse which throws an ApiError
+        if (!response.ok) {
             // Try to parse the error message from the JSON response body
             const errorData = await response.json().catch(() => ({
-                error: `Request failed with status ${response.status}` // Fallback if body isn't JSON
+                error: `Request failed with status ${response.status} ${response.statusText}` // Fallback if body isn't JSON
             }));
-             // Return an object conforming to WatchResponse with the error message
-             return { error: errorData.error || `Request failed with status ${response.status}` };
+            // Throw an error that can be caught by useMutation's onError
+            // Note: handleResponse could be used here too if we didn't have the outer try-catch
+            // for network errors. For consistency, we could refactor to always use handleResponse.
+            // However, the current specific error message might be slightly different.
+            // For now, we keep the direct error throwing for this specific case,
+            // but ensure the error message is extracted similarly.
+            throw new ApiError(
+                errorData.error || `Request failed with status ${response.status}`,
+                response.status,
+                errorData
+            );
         }
+        // Handle successful responses (e.g., 201 Created)
+        // Expecting { message: "..." } from backend on success
+        return await response.json() as WatchResponse;
+
      } catch (error) {
         // Handle network errors or other exceptions during the fetch operation
+        // and re-throw them so useMutation's onError can catch them.
         console.error("Network or other error during watch request:", error);
-        if (error instanceof Error) {
-            // Return a WatchResponse object with the network error message
-             return { error: `An network error occurred: ${error.message}` };
+        if (error instanceof Error) { // This will also catch ApiError
+            throw error; // Re-throw the original error
         } else {
             // Fallback for unknown error types
-             return { error: "An unknown error occurred during the watch request." };
+            throw new Error("An unknown error occurred during the watch request.");
         }
      }
 };
