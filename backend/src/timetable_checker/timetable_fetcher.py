@@ -20,6 +20,7 @@ class SectionInfo(TypedDict):
     section: str
     key: str
     open_seats: int
+    total_seats: int
     block_type: str
 
 class TermInfo(TypedDict):
@@ -342,9 +343,10 @@ class TimetableFetcher:
                         section = block.get('secNo') # e.g., "C01", "T01"
                         key = block.get('key') # Unique key for the block/section
                         open_seats_str = block.get('os') # Open seats as string
+                        total_seats_str = block.get('me') # Total enrollment (max seats)
 
                         # Ensure essential attributes are present
-                        if section is None or key is None or open_seats_str is None:
+                        if section is None or key is None or open_seats_str is None or total_seats_str is None:
                              log.warning(f"Skipping block in {original_course_code} (Key: {key}) due to missing attrs: {block.attrs}")
                              continue
 
@@ -352,12 +354,14 @@ class TimetableFetcher:
                         if key in processed_block_keys[original_course_code]: continue
 
                         open_seats = int(open_seats_str) # Convert seats to integer
+                        total_seats = int(total_seats_str) # Convert total seats to integer
 
                         # Create the structured SectionInfo dictionary
                         section_info: SectionInfo = {
                             'section': section,
                             'key': key,
                             'open_seats': open_seats,
+                            'total_seats': total_seats,
                             'block_type': block_type
                         }
 
