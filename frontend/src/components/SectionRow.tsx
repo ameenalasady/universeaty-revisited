@@ -15,20 +15,24 @@ interface SectionRowProps {
 }
 
 const SectionRow: React.FC<SectionRowProps> = ({ section, onWatchClick, isWatchDisabled, isWatchMutationPending }) => {
+  const hasOpenSeats = section.open_seats > 0;
+
   return (
-    <TableRow key={section.key}>
+    <TableRow key={section.key} className="border-b-muted/20">
       <TableCell className="font-medium">{section.section}</TableCell>
       <TableCell className="text-muted-foreground">{section.key}</TableCell>
       <TableCell className="text-center">
         <Badge
-          variant={section.open_seats <= 0 ? "destructive" : "default"}
+          variant={hasOpenSeats ? "default" : "destructive"}
           className={cn(
-            "text-xs font-medium px-3 py-1",
-            section.open_seats > 0 &&
-              "border-transparent bg-green-100 text-green-800 hover:bg-green-100/80 dark:bg-green-900 dark:text-green-200 dark:hover:bg-green-900/80"
+            "text-xs font-semibold px-3 py-1 tracking-wide",
+            hasOpenSeats
+              ? "border-transparent bg-green-500/20 text-green-300 hover:bg-green-500/30"
+              : "border-transparent bg-red-500/20 text-red-300 hover:bg-red-500/30"
           )}
         >
-          {section.open_seats} / {section.total_seats} seats
+          {hasOpenSeats ? 'OPEN' : 'FULL'}
+          <span className="font-normal opacity-70 ml-1.5">({section.open_seats}/{section.total_seats})</span>
         </Badge>
       </TableCell>
       <TableCell className="text-right">

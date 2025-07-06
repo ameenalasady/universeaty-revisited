@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Eye, Info } from 'lucide-react';
 import { CourseDetailsSection, ApiError } from '@/services/api';
 import { toast } from 'sonner';
+import CourseDetailsEmptyState from './CourseDetailsEmptyState';
 
 export const CourseDetailsDisplay: React.FC = () => {
   // --- State from Context ---
@@ -77,6 +78,10 @@ export const CourseDetailsDisplay: React.FC = () => {
     return <CourseDetailsSkeleton />;
   }
 
+  if (!selectedCourse) {
+    return <CourseDetailsEmptyState />;
+  }
+
   // Show error card only if a course is selected and an error occurred
   if (selectedCourse && isError) {
      return (
@@ -113,7 +118,7 @@ export const CourseDetailsDisplay: React.FC = () => {
 
   // Don't render anything if no course is selected yet
   // or if details somehow ended up empty after successful fetch (edge case)
-  if (!selectedCourse || !courseDetails || Object.keys(courseDetails).length === 0) {
+  if (!courseDetails || Object.keys(courseDetails).length === 0) {
     return null;
   }
 
@@ -161,4 +166,4 @@ export const CourseDetailsDisplay: React.FC = () => {
   );
 };
 
-export default CourseDetailsDisplay; // Optional default export
+export default CourseDetailsDisplay;
