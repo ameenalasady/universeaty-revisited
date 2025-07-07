@@ -31,13 +31,15 @@ export const WatchSectionDialog: React.FC<WatchSectionDialogProps> = ({
   const [email, setEmail] = useState('');
   const [isValidEmail, setIsValidEmail] = useState(false);
 
+  // This effect runs when the dialog opens to pre-populate the email from localStorage
   useEffect(() => {
     if (isOpen) {
-      setEmail('');
-      setIsValidEmail(false);
+      const savedEmail = localStorage.getItem('universeaty_userEmail') || '';
+      setEmail(savedEmail);
     }
-  }, [isOpen, section]);
+  }, [isOpen]);
 
+  // This effect validates the email whenever it changes, either from pre-population or user input.
   useEffect(() => {
     setIsValidEmail(email.trim() !== '' && /\S+@\S+\.\S+/.test(email));
   }, [email]);

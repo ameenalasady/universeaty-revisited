@@ -53,6 +53,14 @@ export const CourseDetailsDisplay: React.FC = () => {
     };
     addWatchMutation.mutate(payload, {
       onSuccess: (data) => { // data is now the WatchResponse on success
+        // On successful submission, save the email to localStorage for future use.
+        // Using a try-catch block is good practice for localStorage operations.
+        try {
+          localStorage.setItem('universeaty_userEmail', email);
+        } catch (e) {
+          console.warn("Failed to save email to localStorage:", e);
+        }
+
         toast.success(data.message || "Watch request submitted successfully!");
         setIsWatchDialogOpen(false);
         setWatchSection(null); // Clear selection after success
