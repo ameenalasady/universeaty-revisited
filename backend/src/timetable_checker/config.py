@@ -55,7 +55,7 @@ BASE_URL_MYTIMETABLE = "https://mytimetable.mcmaster.ca"
 # Client Timing Defaults
 DEFAULT_CHECK_INTERVAL_SECONDS = int(os.environ.get('DEFAULT_CHECK_INTERVAL_SECONDS', 60))     # Default 1 minute
 DEFAULT_UPDATE_INTERVAL_SECONDS = int(os.environ.get('DEFAULT_UPDATE_INTERVAL_SECONDS', 3600)) # Default 1 hour
-FETCH_DETAILS_TIMEOUT_SECONDS = int(os.environ.get('FETCH_DETAILS_TIMEOUT_SECONDS', 5)) # Timeout for fetching batch course details
+FETCH_DETAILS_TIMEOUT_SECONDS = int(os.environ.get('FETCH_DETAILS_TIMEOUT_SECONDS', 10)) # Timeout for fetching batch course details
 
 # External Links (Used in Templates/Emails)
 MYTIMETABLE_URL = "https://mytimetable.mcmaster.ca"

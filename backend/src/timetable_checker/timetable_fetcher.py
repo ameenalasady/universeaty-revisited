@@ -257,7 +257,7 @@ class TimetableFetcher:
         log.info(f"Finished fetching for term ID {term_id}. Found {len(unique_sorted_courses)} unique courses.")
         return unique_sorted_courses
 
-    def fetch_course_details(self, term_id: str, course_codes: List[str]) -> Dict[str, Dict[str, List[SectionInfo]]]:
+    def fetch_course_details(self, term_id: str, course_codes: List[str], timeout: Optional[int] = None) -> Dict[str, Dict[str, List[SectionInfo]]]:
         """
         Fetches detailed section information for a list of courses within a specific term.
 
@@ -268,6 +268,8 @@ class TimetableFetcher:
             term_id: The ID of the term to query.
             course_codes: A list of course codes (e.g., ["COMPSCI 1JC3", "MATH 1ZA3"])
                           to fetch details for.
+            timeout: Optional. Specific timeout in seconds for this network request.
+                     If None, the session's default timeout is used.
 
         Returns:
             A dictionary where keys are the original course codes and values are
@@ -303,8 +305,10 @@ class TimetableFetcher:
             headers['Sec-Fetch-Mode'] = 'cors'
             headers['Sec-Fetch-Site'] = 'same-origin'
 
-            response = self.session.get(api_endpoint, params=params, headers=headers)
-            log.debug(f"Course details API request URL: {response.url}")
+            # Use the provided timeout for this specific request, or the session default if None
+            request_timeout = timeout if timeout is not None else self.session.timeout
+            response = self.session.get(api_endpoint, params=params, headers=headers, timeout=request_timeout)
+            log.debug(f"Course details API request URL: {response.url} (Timeout: {request_timeout}s)")
             response.raise_for_status() # Check for HTTP errors
 
             # Handle empty but successful responses
@@ -383,7 +387,7 @@ class TimetableFetcher:
             return results
 
         except requests.exceptions.Timeout:
-             log.warning(f"Timeout fetching course details for term {term_id}, courses: {course_codes}")
+             log.warning(f"Timeout ({request_timeout}s) fetching course details for term {term_id}, courses: {course_codes}")
              return {} # Return empty on timeout
         except requests.exceptions.RequestException as e:
             log.error(f"API request error for course details (Term: {term_id}, Courses: {course_codes}): {e}")

@@ -333,20 +333,22 @@ class McMasterTimetableClient:
                 fetch_successful = False
 
                 # --- Submit fetch task to executor ---
-                future = executor.submit(self.fetcher.fetch_course_details, term_id, unique_course_codes)
+                future = executor.submit(
+                    self.fetcher.fetch_course_details,
+                    term_id,
+                    unique_course_codes,
+                    timeout=FETCH_DETAILS_TIMEOUT_SECONDS
+                )
 
                 try:
-                    # --- Wait for result with external timeout ---
-                    log.debug(f"Waiting for course details fetch (Term={term_id}) with timeout {FETCH_DETAILS_TIMEOUT_SECONDS}s...")
-                    term_course_details = future.result(timeout=FETCH_DETAILS_TIMEOUT_SECONDS)
-                    # Consider fetch successful if no exception occurred AND we got some data (or an empty dict if that's valid)
-                    # The fetcher should ideally return {} onhandled errors, not raise them here unless it's unhandled.
+                    # --- Wait for result WITHOUT a separate timeout ---
+                    # The timeout is now handled by the requests call inside the fetcher.
+                    log.debug(f"Waiting for course details fetch (Term={term_id})...")
+                    term_course_details = future.result() # No timeout here
+                    # If we get here without an exception, the task completed.
+                    # The fetcher returns {} on network timeout, so term_course_details could be empty.
                     log.debug(f"Successfully fetched details for Term={term_id}.")
                     fetch_successful = True
-                except concurrent.futures.TimeoutError:
-                    future.cancel()
-                    log.error(f"Timeout ({FETCH_DETAILS_TIMEOUT_SECONDS}s) exceeded while fetching batch details for Term {term_id}. "
-                              f"Skipping term for this cycle. Requests remain pending.")
                 except requests.exceptions.RequestException as req_err:
                     log.error(f"Network error during fetch task for Term {term_id}: {req_err}. "
                               f"Skipping term for this cycle. Requests remain pending.")
@@ -717,15 +719,17 @@ class McMasterTimetableClient:
         time.sleep(interval) # Wait briefly after initialization before first check
 
         while True:
-            log.info(f"Watch Checker: Running check...")
+            log.info(f"Watch Checker: Running check cycle...")
             start_time = time.time()
             try:
                 # This method now orchestrates calls to storage and fetcher, and handles internal errors
                 self._check_watched_courses()
-                log.info(f"Watch Checker: Check complete. (Took {time.time() - start_time:.2f}s)")
             except Exception as e:
                 # Log exceptions but continue running the loop
-                log.exception(f"Watch Checker: Unhandled error during periodic check cycle")
-
-            log.info(f"Watch Checker sleeping for {interval} seconds...")
-            time.sleep(interval)
+                log.exception(f"Watch Checker: Unhandled error during periodic check cycle processing")
+            finally:
+                # This block ALWAYS executes, ensuring the loop's state is logged.
+                duration = time.time() - start_time
+                log.info(f"Watch Checker: Finished check cycle. (Took {duration:.2f}s)")
+                log.info(f"Watch Checker sleeping for {interval} seconds...")
+                time.sleep(interval)
