@@ -29,6 +29,10 @@ Your email is conveniently remembered in your browser's local storage to make wa
 *   **Privacy-Conscious:** Your email is used solely for sending you the notifications you request. It is not shared or used for any other purpose.
 *   **Completely Open Source:** Both the frontend and backend code are available for review, ensuring full transparency in how the system operates.
 
+## Important — MyTimetable login
+
+Universeaty cannot perform live checks while McMaster's [MyTimetable](https://mytimetable.mcmaster.ca/) requires an authenticated login. Because this project does not have McMaster credentials, automated monitoring and live updates are temporarily suspended whenever MyTimetable prompts for sign-in. Monitoring will automatically resume as soon as the site becomes publicly accessible again (this typically resolves within a few days). We apologize for the inconvenience and appreciate your patience.
+
 ## Frequently Asked Questions
 
 **How do I know my watch request was successful?**
@@ -39,10 +43,6 @@ If the system detects that a section you are watching no longer exists, your wat
 
 **Can I watch multiple sections at once?**
 Yes. You can create separate watch requests for as many different sections as you need.
-
-## Important — MyTimetable login
-
-Universeaty cannot perform live checks while McMaster's [MyTimetable](https://mytimetable.mcmaster.ca/) requires an authenticated login. Because this project does not have McMaster credentials, automated monitoring and live updates are temporarily suspended whenever MyTimetable prompts for sign-in. Monitoring will automatically resume as soon as the site becomes publicly accessible again (this typically resolves within a few days). We apologize for the inconvenience and appreciate your patience.
 
 ## Technical Overview
 
