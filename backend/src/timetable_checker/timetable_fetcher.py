@@ -397,3 +397,16 @@ class TimetableFetcher:
             log.error(f"Error processing course details response (Term: {term_id}, Courses: {course_codes}): {e}")
             if 'response' in locals() and response: log.error(f"Response text (first 500 chars): {response.text[:500]}...")
             return {} # Return empty on unexpected error
+
+    def refresh_session(self):
+        """Recreates the requests Session to clear stale connection pools."""
+        log.info("Refreshing TimetableFetcher HTTP Session...")
+        try:
+            self.session.close()
+        except Exception:
+            # best-effort close - ignore errors
+            pass
+        self.session = requests.Session()
+        self._init_headers()
+        self._init_other_settings()
+        log.info("HTTP Session refreshed.")

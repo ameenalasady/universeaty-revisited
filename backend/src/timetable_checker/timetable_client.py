@@ -72,6 +72,8 @@ class McMasterTimetableClient:
         self.update_thread: Optional[threading.Thread] = None
         self.check_thread: Optional[threading.Thread] = None
 
+        self.consecutive_empty_cycles = 0  # counts consecutive cycles where no useful data was returned
+
         self._initialize()
         # Start background tasks after the initial data load
         self.start_periodic_tasks(update_interval, check_interval)
@@ -310,6 +312,9 @@ class McMasterTimetableClient:
         # Get current known terms from cache once for this check cycle
         current_cached_terms_map: Dict[str, TermInfo] = {term['id']: term for term in self.get_terms()}
 
+        # Track if we found ANY valid course data in this entire cycle
+        data_found_in_cycle = False
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="DetailFetcher") as executor:
             # Process requests term by term
             for term_id, term_requests in requests_by_term.items():
@@ -345,16 +350,33 @@ class McMasterTimetableClient:
                     # The timeout is now handled by the requests call inside the fetcher.
                     log.debug(f"Waiting for course details fetch (Term={term_id})...")
                     term_course_details = future.result() # No timeout here
-                    # If we get here without an exception, the task completed.
-                    # The fetcher returns {} on network timeout, so term_course_details could be empty.
                     log.debug(f"Successfully fetched details for Term={term_id}.")
-                    fetch_successful = True
+
+                    # Consider the fetch "useful" only if it contains at least one section entry
+                    def _has_useful_data(details: Dict[str, Dict[str, List[SectionInfo]]]) -> bool:
+                        if not details:
+                            return False
+                        for course_dict in details.values():
+                            if course_dict and any(len(lst) > 0 for lst in course_dict.values()):
+                                return True
+                        return False
+
+                    if _has_useful_data(term_course_details):
+                        fetch_successful = True
+                        data_found_in_cycle = True
+                    else:
+                        # returned {} or empty structures -> treat as soft failure for this term
+                        log.warning(f"No usable course detail data found for term {term_id} in this fetch.")
+                        fetch_successful = False
+
                 except requests.exceptions.RequestException as req_err:
                     log.error(f"Network error during fetch task for Term {term_id}: {req_err}. "
                               f"Skipping term for this cycle. Requests remain pending.")
+                    fetch_successful = False
                 except Exception as e:
                     log.exception(f"Unexpected error during fetch task for Term {term_id}. "
                                   f"Skipping term for this cycle. Requests remain pending.")
+                    fetch_successful = False
 
                 if not fetch_successful:
                     log.warning(f"Skipping checks for term {term_id} this cycle due to fetch failure.")
@@ -441,6 +463,24 @@ class McMasterTimetableClient:
                         else:
                             log.error(f"Email content generation failed for request ID {req_id}. It will remain pending.")
                     # else: seats are still closed (current_open_seats <= 0), request remains pending.
+
+        # --- NEW "ZOMBIE" DETECTION LOGIC ---
+        # If we had pending requests, but found NO data for ANY term, something is wrong.
+        if pending_requests and not data_found_in_cycle:
+            self.consecutive_empty_cycles += 1
+            log.warning(f"Watch Checker: No data found for any term this cycle. Consecutive failures: {self.consecutive_empty_cycles}")
+
+            # If this happens 3 times in a row, kill the session and start over
+            if self.consecutive_empty_cycles >= 3:
+                log.warning("Watch Checker: Network session appears stale/zombie. Forcing session refresh.")
+                try:
+                    self.fetcher.refresh_session()
+                except Exception:
+                    log.exception("Failed to refresh fetcher session.")
+                self.consecutive_empty_cycles = 0 # Reset counter
+        else:
+            # We found data, so network is fine. Reset counter.
+            self.consecutive_empty_cycles = 0
 
         # --- Update database statuses ---
         # error_ids now contains requests where section was confirmed missing OR email was permanently invalid.
