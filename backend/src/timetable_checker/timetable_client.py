@@ -310,6 +310,15 @@ class McMasterTimetableClient:
         all_pending_ids_this_cycle = [req['id'] for req in pending_requests if isinstance(req.get('id'), int)]
 
         # Get current known terms from cache once for this check cycle
+        terms_list = self.get_terms()
+
+        # If we have 0 terms, the fetcher likely failed at startup.
+        # Do not process/invalidate requests yet.
+        if not terms_list:
+            log.warning("No terms found in internal cache (possible startup failure). Skipping watch check cycle to prevent false positives.")
+            return
+
+        # Get current known terms from cache once for this check cycle
         current_cached_terms_map: Dict[str, TermInfo] = {term['id']: term for term in self.get_terms()}
 
         # Track if we found ANY valid course data in this entire cycle
