@@ -123,7 +123,7 @@ const CourseStatsPanel: React.FC<CourseStatsPanelProps> = ({ termId, courseCode 
                 <span>Most watched:</span>
               </div>
               <div className="flex flex-wrap justify-center gap-1.5">
-                {request_stats.most_watched_sections.slice(0, 3).map((sec, idx) => (
+                {request_stats.most_watched_sections.slice(0, 3).map((sec) => (
                   <Badge
                     key={sec.section_key}
                     variant="secondary"
