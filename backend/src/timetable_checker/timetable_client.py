@@ -78,6 +78,8 @@ class McMasterTimetableClient:
         self.update_thread: Optional[threading.Thread] = None
         self.check_thread: Optional[threading.Thread] = None
 
+        self.shutdown_event = threading.Event() # Added for graceful shutdown
+
         self.consecutive_empty_cycles = 0  # counts consecutive cycles where no useful data was returned
 
         self._initialize()
@@ -551,9 +553,10 @@ class McMasterTimetableClient:
         # For the very first run after app start, an initial population is done in _initialize().
         # This loop is for periodic *updates*.
         log.info(f"Term/Course Updater: First periodic update will occur in approximately {interval} seconds after initial data load completes.")
-        time.sleep(interval) # Initial sleep before the very first periodic run
+        if self.shutdown_event.wait(interval): # Initial sleep, early exit if shutdown
+            return
 
-        while True:
+        while not self.shutdown_event.is_set():
             log.info(f"Term/Course Updater: Running update cycle...")
             start_time = time.time()
             term_update_check_completed = False # Tracks if the term check logic completed (not necessarily if cache was written)
@@ -729,7 +732,7 @@ class McMasterTimetableClient:
                      f"(Took {duration:.2f}s)")
 
             log.info(f"Term/Course Updater sleeping for {interval} seconds...")
-            time.sleep(interval)
+            self.shutdown_event.wait(interval)
 
 
 
@@ -740,9 +743,10 @@ class McMasterTimetableClient:
         """
         log.info(f"Watch Checker thread started. Check interval: {interval}s.")
         log.info(f"Watch Checker: Performing initial check in {interval} seconds...")
-        time.sleep(interval) # Wait briefly after initialization before first check
+        if self.shutdown_event.wait(interval): # Wait before first check, early exit if shutdown
+            return
 
-        while True:
+        while not self.shutdown_event.is_set():
             log.info(f"Watch Checker: Running check cycle...")
             start_time = time.time()
             try:
@@ -756,7 +760,7 @@ class McMasterTimetableClient:
                 duration = time.time() - start_time
                 log.info(f"Watch Checker: Finished check cycle. (Took {duration:.2f}s)")
                 log.info(f"Watch Checker sleeping for {interval} seconds...")
-                time.sleep(interval)
+                self.shutdown_event.wait(interval)
 
     def _notification_worker(self):
         """
@@ -766,6 +770,9 @@ class McMasterTimetableClient:
         """
         while True:
             task = self.notification_queue.get()
+            if task is None: # Sentinel value for shutdown
+                self.notification_queue.task_done()
+                break
             try:
                 if not isinstance(task, dict):
                     log.error(f"Notification worker received invalid task: {task}")
@@ -821,3 +828,26 @@ class McMasterTimetableClient:
                 except Exception:
                     # ignore task_done errors
                     pass
+
+    def shutdown(self):
+        """Gracefully stops all background threads and drains the notification queue."""
+        log.info("Client shutdown initiated. Stopping background threads...")
+        self.shutdown_event.set()
+
+        # Join main orchestration threads if they are alive (timeout to prevent hanging forever)
+        if self.update_thread and self.update_thread.is_alive():
+            self.update_thread.join(timeout=5)
+        if self.check_thread and self.check_thread.is_alive():
+            self.check_thread.join(timeout=5)
+
+        # Stop workers by queuing sentinel values
+        log.info("Stopping email workers and draining queue...")
+        for _ in range(self.num_worker_threads):
+            self.notification_queue.put(None)
+            
+        # Wait for workers to finish current emails and hit sentinels
+        for t in self._worker_threads:
+            if t.is_alive():
+                t.join(timeout=10)
+
+        log.info("Client shutdown complete.")

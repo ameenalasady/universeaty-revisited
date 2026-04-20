@@ -27,6 +27,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from datetime import datetime, timezone
 import threading
 import requests
+import atexit
 
 # --- Import Configuration First ---
 # This module now handles path calculation and .env loading
@@ -143,7 +144,8 @@ try:
         update_interval=DEFAULT_UPDATE_INTERVAL_SECONDS,
         check_interval=DEFAULT_CHECK_INTERVAL_SECONDS
     )
-    log.info("McMasterTimetableClient initialized successfully.")
+    atexit.register(client.shutdown)
+    log.info("McMasterTimetableClient initialized successfully. Shutdown hook registered.")
 
 except Exception as e:
     log.critical(f"Failed to initialize McMasterTimetableClient: {e}", exc_info=True)
