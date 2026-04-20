@@ -1,7 +1,7 @@
 beautifulsoup4==4.13.3
 lxml==5.3.1
 requests==2.32.4
-dotenv==0.9.9
+python-dotenv==1.0.1
 Flask
 Flask-Limiter
 redis
