@@ -125,7 +125,7 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
     <div className="p-4 space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
       {/* Stats row */}
       {stats && (
-        <div className="flex flex-wrap items-center gap-2 text-xs">
+        <div className="flex flex-wrap justify-center items-center gap-4 text-xs">
           <div className="flex items-center gap-1.5 text-muted-foreground">
             <TrendingUp className="h-3.5 w-3.5" />
             <span>
