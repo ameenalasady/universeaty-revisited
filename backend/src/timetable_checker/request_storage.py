@@ -23,6 +23,7 @@ class RequestStorage:
 
     # --- Database Constants ---
     WATCH_REQUESTS_TABLE = "watch_requests"
+    SEAT_SNAPSHOTS_TABLE = "seat_snapshots"
     STATUS_PENDING = "pending"
     STATUS_NOTIFIED = "notified"
     STATUS_ERROR = "error"
@@ -83,6 +84,22 @@ class RequestStorage:
                 """)
                 cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_status ON {self.WATCH_REQUESTS_TABLE}(status)")
                 cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_term_course ON {self.WATCH_REQUESTS_TABLE}(term_id, course_code)")
+
+                # --- Seat Snapshots Table ---
+                cursor.execute(f"""
+                    CREATE TABLE IF NOT EXISTS {self.SEAT_SNAPSHOTS_TABLE} (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        term_id TEXT NOT NULL,
+                        course_code TEXT NOT NULL,
+                        section_key TEXT NOT NULL,
+                        open_seats INTEGER NOT NULL,
+                        total_seats INTEGER NOT NULL,
+                        recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_snapshots_lookup ON {self.SEAT_SNAPSHOTS_TABLE}(term_id, course_code, section_key, recorded_at)")
+                cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_snapshots_cleanup ON {self.SEAT_SNAPSHOTS_TABLE}(recorded_at)")
+
                 conn.commit()
                 log.info("Database schema checked/initialized successfully.")
             except sqlite3.Error as e:
@@ -415,3 +432,387 @@ class RequestStorage:
                         conn.close()
                     except sqlite3.Error as close_err:
                         log.error(f"Storage: Error closing database connection after status update: {close_err}")
+
+    # --- Seat Snapshot Methods ---
+
+    def record_seat_snapshots_batch(self, snapshots: List[Dict[str, Any]]) -> int:
+        """
+        Records a batch of seat availability snapshots, skipping any where
+        the seat count hasn't changed since the last recorded snapshot for that section.
+
+        Args:
+            snapshots: List of dicts, each with keys:
+                       term_id, course_code, section_key, open_seats, total_seats
+
+        Returns:
+            Number of new snapshot rows actually inserted.
+        """
+        if not snapshots:
+            return 0
+
+        inserted_count = 0
+        with self.db_lock:
+            conn = None
+            try:
+                conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute("BEGIN TRANSACTION")
+
+                for snap in snapshots:
+                    term_id = snap.get('term_id')
+                    course_code = snap.get('course_code')
+                    section_key = snap.get('section_key')
+                    open_seats = snap.get('open_seats')
+                    total_seats = snap.get('total_seats')
+
+                    if term_id is None or course_code is None or section_key is None or open_seats is None or total_seats is None:
+                        continue
+
+                    # Deduplication: skip if last recorded value is identical
+                    cursor.execute(
+                        f"""SELECT open_seats, total_seats FROM {self.SEAT_SNAPSHOTS_TABLE}
+                            WHERE term_id = ? AND course_code = ? AND section_key = ?
+                            ORDER BY recorded_at DESC LIMIT 1""",
+                        (term_id, course_code, section_key)
+                    )
+                    last_row = cursor.fetchone()
+                    if last_row and last_row['open_seats'] == open_seats and last_row['total_seats'] == total_seats:
+                        continue  # No change, skip
+
+                    cursor.execute(
+                        f"""INSERT INTO {self.SEAT_SNAPSHOTS_TABLE}
+                            (term_id, course_code, section_key, open_seats, total_seats)
+                            VALUES (?, ?, ?, ?, ?)""",
+                        (term_id, course_code, section_key, open_seats, total_seats)
+                    )
+                    inserted_count += 1
+
+                conn.commit()
+                if inserted_count > 0:
+                    log.info(f"Storage: Recorded {inserted_count} new seat snapshots (out of {len(snapshots)} candidates).")
+                else:
+                    log.debug(f"Storage: No new seat snapshots to record ({len(snapshots)} candidates checked, all unchanged).")
+                return inserted_count
+
+            except sqlite3.Error as e:
+                log.error(f"Storage: Error recording seat snapshots batch: {e}", exc_info=True)
+                if conn:
+                    try:
+                        conn.rollback()
+                    except sqlite3.Error as rb_err:
+                        log.error(f"Storage: Error during rollback on snapshot batch: {rb_err}")
+                return 0
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except sqlite3.Error as close_err:
+                        log.error(f"Storage: Error closing connection after snapshot batch: {close_err}")
+
+    def get_section_history(self, term_id: str, course_code: str, section_key: str, hours: int = 72) -> List[Dict[str, Any]]:
+        """
+        Returns seat snapshots for a specific section within a time window.
+        Limits to ~500 data points by downsampling if needed.
+
+        Args:
+            term_id: Term ID.
+            course_code: Course code.
+            section_key: Section key.
+            hours: Number of hours to look back (default 72).
+
+        Returns:
+            List of dicts with keys: open_seats, total_seats, recorded_at
+        """
+        results: List[Dict[str, Any]] = []
+        with self.db_lock:
+            conn = None
+            try:
+                conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+
+                # First count total rows in the window
+                cursor.execute(
+                    f"""SELECT COUNT(*) as cnt FROM {self.SEAT_SNAPSHOTS_TABLE}
+                        WHERE term_id = ? AND course_code = ? AND section_key = ?
+                        AND recorded_at >= datetime('now', ?)""",
+                    (term_id, course_code, section_key, f"-{hours} hours")
+                )
+                count_row = cursor.fetchone()
+                total_count = count_row['cnt'] if count_row else 0
+
+                max_points = 500
+                if total_count > max_points and total_count > 0:
+                    # Downsample: select every Nth row using rowid modulus
+                    step = total_count // max_points
+                    cursor.execute(
+                        f"""SELECT open_seats, total_seats, recorded_at FROM (
+                                SELECT *, ROW_NUMBER() OVER (ORDER BY recorded_at) as rn
+                                FROM {self.SEAT_SNAPSHOTS_TABLE}
+                                WHERE term_id = ? AND course_code = ? AND section_key = ?
+                                AND recorded_at >= datetime('now', ?)
+                            ) WHERE rn % ? = 1 OR rn = (SELECT MAX(rn) FROM (
+                                SELECT ROW_NUMBER() OVER (ORDER BY recorded_at) as rn
+                                FROM {self.SEAT_SNAPSHOTS_TABLE}
+                                WHERE term_id = ? AND course_code = ? AND section_key = ?
+                                AND recorded_at >= datetime('now', ?)
+                            ))
+                            ORDER BY recorded_at ASC""",
+                        (term_id, course_code, section_key, f"-{hours} hours",
+                         step,
+                         term_id, course_code, section_key, f"-{hours} hours")
+                    )
+                else:
+                    cursor.execute(
+                        f"""SELECT open_seats, total_seats, recorded_at
+                            FROM {self.SEAT_SNAPSHOTS_TABLE}
+                            WHERE term_id = ? AND course_code = ? AND section_key = ?
+                            AND recorded_at >= datetime('now', ?)
+                            ORDER BY recorded_at ASC""",
+                        (term_id, course_code, section_key, f"-{hours} hours")
+                    )
+
+                results = [dict(row) for row in cursor.fetchall()]
+                log.debug(f"Storage: Retrieved {len(results)} history points for {course_code}/{section_key} (last {hours}h).")
+            except sqlite3.Error as e:
+                log.error(f"Storage: Error fetching section history: {e}", exc_info=True)
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except sqlite3.Error as close_err:
+                        log.error(f"Storage: Error closing connection after history fetch: {close_err}")
+        return results
+
+    def get_section_stats(self, term_id: str, course_code: str, section_key: str, hours: int = 72) -> Dict[str, Any]:
+        """
+        Returns aggregated statistics for a section over a time window.
+
+        Returns:
+            Dict with keys: total_snapshots, times_opened, max_open_seats, last_opened_at
+        """
+        stats: Dict[str, Any] = {
+            'total_snapshots': 0,
+            'times_opened': 0,
+            'max_open_seats': 0,
+            'last_opened_at': None,
+        }
+        with self.db_lock:
+            conn = None
+            try:
+                conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+
+                # Basic aggregates
+                cursor.execute(
+                    f"""SELECT
+                            COUNT(*) as total_snapshots,
+                            MAX(open_seats) as max_open_seats
+                        FROM {self.SEAT_SNAPSHOTS_TABLE}
+                        WHERE term_id = ? AND course_code = ? AND section_key = ?
+                        AND recorded_at >= datetime('now', ?)""",
+                    (term_id, course_code, section_key, f"-{hours} hours")
+                )
+                row = cursor.fetchone()
+                if row:
+                    stats['total_snapshots'] = row['total_snapshots'] or 0
+                    stats['max_open_seats'] = row['max_open_seats'] or 0
+
+                # Count transitions from 0 -> >0 (times_opened)
+                # Get all snapshots in order and count transitions
+                cursor.execute(
+                    f"""SELECT open_seats, recorded_at FROM {self.SEAT_SNAPSHOTS_TABLE}
+                        WHERE term_id = ? AND course_code = ? AND section_key = ?
+                        AND recorded_at >= datetime('now', ?)
+                        ORDER BY recorded_at ASC""",
+                    (term_id, course_code, section_key, f"-{hours} hours")
+                )
+                all_snaps = cursor.fetchall()
+                times_opened = 0
+                last_opened_at = None
+                prev_open = None
+                for snap in all_snaps:
+                    current_open = snap['open_seats']
+                    if prev_open is not None and prev_open == 0 and current_open > 0:
+                        times_opened += 1
+                        last_opened_at = snap['recorded_at']
+                    elif prev_open is None and current_open > 0:
+                        # First snapshot shows open seats
+                        last_opened_at = snap['recorded_at']
+                    prev_open = current_open
+                stats['times_opened'] = times_opened
+                stats['last_opened_at'] = last_opened_at
+
+            except sqlite3.Error as e:
+                log.error(f"Storage: Error computing section stats: {e}", exc_info=True)
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except sqlite3.Error as close_err:
+                        log.error(f"Storage: Error closing connection after section stats: {close_err}")
+        return stats
+
+    def get_course_request_stats(self, term_id: str, course_code: str) -> Dict[str, Any]:
+        """
+        Returns watch request statistics for a course.
+
+        Returns:
+            Dict with keys: total_requests, active_requests, requests_last_24h,
+                             requests_last_7d, most_watched_sections
+        """
+        stats: Dict[str, Any] = {
+            'total_requests': 0,
+            'active_requests': 0,
+            'requests_last_24h': 0,
+            'requests_last_7d': 0,
+            'most_watched_sections': [],
+        }
+        with self.db_lock:
+            conn = None
+            try:
+                conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+
+                # Total requests for this course
+                cursor.execute(
+                    f"SELECT COUNT(*) as cnt FROM {self.WATCH_REQUESTS_TABLE} WHERE term_id = ? AND course_code = ?",
+                    (term_id, course_code)
+                )
+                row = cursor.fetchone()
+                stats['total_requests'] = row['cnt'] if row else 0
+
+                # Active (pending) requests
+                cursor.execute(
+                    f"SELECT COUNT(*) as cnt FROM {self.WATCH_REQUESTS_TABLE} WHERE term_id = ? AND course_code = ? AND status = ?",
+                    (term_id, course_code, self.STATUS_PENDING)
+                )
+                row = cursor.fetchone()
+                stats['active_requests'] = row['cnt'] if row else 0
+
+                # Requests in last 24 hours
+                cursor.execute(
+                    f"SELECT COUNT(*) as cnt FROM {self.WATCH_REQUESTS_TABLE} WHERE term_id = ? AND course_code = ? AND created_at >= datetime('now', '-24 hours')",
+                    (term_id, course_code)
+                )
+                row = cursor.fetchone()
+                stats['requests_last_24h'] = row['cnt'] if row else 0
+
+                # Requests in last 7 days
+                cursor.execute(
+                    f"SELECT COUNT(*) as cnt FROM {self.WATCH_REQUESTS_TABLE} WHERE term_id = ? AND course_code = ? AND created_at >= datetime('now', '-7 days')",
+                    (term_id, course_code)
+                )
+                row = cursor.fetchone()
+                stats['requests_last_7d'] = row['cnt'] if row else 0
+
+                # Most watched sections (top 5 by request count)
+                cursor.execute(
+                    f"""SELECT section_key, section_display, COUNT(*) as request_count
+                        FROM {self.WATCH_REQUESTS_TABLE}
+                        WHERE term_id = ? AND course_code = ?
+                        GROUP BY section_key
+                        ORDER BY request_count DESC
+                        LIMIT 5""",
+                    (term_id, course_code)
+                )
+                stats['most_watched_sections'] = [
+                    {'section_key': r['section_key'], 'section_display': r['section_display'], 'request_count': r['request_count']}
+                    for r in cursor.fetchall()
+                ]
+
+            except sqlite3.Error as e:
+                log.error(f"Storage: Error computing course request stats: {e}", exc_info=True)
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except sqlite3.Error as close_err:
+                        log.error(f"Storage: Error closing connection after course request stats: {close_err}")
+        return stats
+
+    def get_course_sections_with_history(self, term_id: str, course_code: str, hours: int = 72) -> Dict[str, Dict[str, Any]]:
+        """
+        Returns history and stats for all sections of a course that have snapshot data.
+
+        Returns:
+            Dict mapping section_key to {history: [...], stats: {...}}
+        """
+        result: Dict[str, Dict[str, Any]] = {}
+        with self.db_lock:
+            conn = None
+            try:
+                conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+
+                # Get distinct section keys for this course that have snapshots
+                cursor.execute(
+                    f"""SELECT DISTINCT section_key FROM {self.SEAT_SNAPSHOTS_TABLE}
+                        WHERE term_id = ? AND course_code = ?
+                        AND recorded_at >= datetime('now', ?)""",
+                    (term_id, course_code, f"-{hours} hours")
+                )
+                section_keys = [row['section_key'] for row in cursor.fetchall()]
+
+            except sqlite3.Error as e:
+                log.error(f"Storage: Error fetching section keys for course history: {e}", exc_info=True)
+                return result
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except sqlite3.Error as close_err:
+                        log.error(f"Storage: Error closing connection after section keys fetch: {close_err}")
+
+        # Fetch history and stats per section (releases lock between calls)
+        for section_key in section_keys:
+            result[section_key] = {
+                'history': self.get_section_history(term_id, course_code, section_key, hours),
+                'stats': self.get_section_stats(term_id, course_code, section_key, hours),
+            }
+
+        return result
+
+    def cleanup_old_snapshots(self, days: int = 30) -> int:
+        """
+        Purges seat snapshots older than the specified number of days.
+
+        Args:
+            days: Number of days to retain. Snapshots older than this are deleted.
+
+        Returns:
+            Number of rows deleted.
+        """
+        deleted_count = 0
+        with self.db_lock:
+            conn = None
+            try:
+                conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                cursor = conn.cursor()
+                cursor.execute(
+                    f"DELETE FROM {self.SEAT_SNAPSHOTS_TABLE} WHERE recorded_at < datetime('now', ?)",
+                    (f"-{days} days",)
+                )
+                deleted_count = cursor.rowcount
+                conn.commit()
+                if deleted_count > 0:
+                    log.info(f"Storage: Cleaned up {deleted_count} seat snapshots older than {days} days.")
+                else:
+                    log.debug(f"Storage: No seat snapshots to clean up (threshold: {days} days).")
+            except sqlite3.Error as e:
+                log.error(f"Storage: Error cleaning up old snapshots: {e}", exc_info=True)
+                if conn:
+                    try:
+                        conn.rollback()
+                    except sqlite3.Error as rb_err:
+                        log.error(f"Storage: Error during rollback on snapshot cleanup: {rb_err}")
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except sqlite3.Error as close_err:
+                        log.error(f"Storage: Error closing connection after snapshot cleanup: {close_err}")

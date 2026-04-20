@@ -4,12 +4,16 @@ import {
   getCourses,
   getCourseDetails,
   addWatchRequest,
+  getCourseStats,
+  getSectionHistory,
   Term,
   CourseDetails,
   WatchRequestPayload,
   WatchResponse,
   WatchBatchRequestPayload,
   WatchBatchResponse,
+  CourseStatsResponse,
+  SectionHistoryResponse,
   addBatchWatchRequest,
   ApiError,
 } from '@/services/api';
@@ -64,5 +68,32 @@ export const useAddWatchRequest = () => {
 export const useAddBatchWatchRequest = () => {
   return useMutation<WatchBatchResponse, ApiError | Error, WatchBatchRequestPayload>({
     mutationFn: addBatchWatchRequest,
+  });
+};
+
+// --- Stats & History Hooks ---
+
+export const useCourseStats = (termId: string | null | undefined, courseCode: string | null | undefined) => {
+  return useQuery<CourseStatsResponse, ApiError | Error>({
+    queryKey: ['courseStats', termId, courseCode],
+    queryFn: () => getCourseStats(termId!, courseCode!),
+    enabled: !!termId && !!courseCode,
+    staleTime: 1000 * 60 * 2, // Cache for 2 minutes
+    refetchOnWindowFocus: false, // Avoid unnecessary refetches
+  });
+};
+
+export const useSectionHistory = (
+  termId: string | null | undefined,
+  courseCode: string | null | undefined,
+  sectionKey: string | null | undefined,
+  enabled: boolean = true
+) => {
+  return useQuery<SectionHistoryResponse, ApiError | Error>({
+    queryKey: ['sectionHistory', termId, courseCode, sectionKey],
+    queryFn: () => getSectionHistory(termId!, courseCode!, sectionKey!),
+    enabled: !!termId && !!courseCode && !!sectionKey && enabled,
+    staleTime: 1000 * 60 * 1, // Cache for 1 minute
+    refetchOnWindowFocus: false,
   });
 };

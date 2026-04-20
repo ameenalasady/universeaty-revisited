@@ -288,3 +288,70 @@ export const addBatchWatchRequest = async (payload: WatchBatchRequestPayload): P
         }
      }
 };
+
+// === Seat History & Stats Types ===
+
+export interface SeatSnapshot {
+    open_seats: number;
+    total_seats: number;
+    recorded_at: string;
+}
+
+export interface SectionStats {
+    total_snapshots: number;
+    times_opened: number;
+    max_open_seats: number;
+    last_opened_at: string | null;
+}
+
+export interface MostWatchedSection {
+    section_key: string;
+    section_display: string;
+    request_count: number;
+}
+
+export interface CourseRequestStats {
+    total_requests: number;
+    active_requests: number;
+    requests_last_24h: number;
+    requests_last_7d: number;
+    most_watched_sections: MostWatchedSection[];
+}
+
+export interface SectionHistoryData {
+    history: SeatSnapshot[];
+    stats: SectionStats;
+}
+
+export interface CourseStatsResponse {
+    request_stats: CourseRequestStats;
+    sections: Record<string, SectionHistoryData>;
+    hours: number;
+}
+
+export interface SectionHistoryResponse {
+    history: SeatSnapshot[];
+    stats: SectionStats;
+    hours: number;
+}
+
+// === API Functions: Stats & History ===
+
+/**
+ * Fetches combined course-level request statistics and per-section history data.
+ */
+export const getCourseStats = async (termId: string, courseCode: string, hours: number = 72): Promise<CourseStatsResponse> => {
+    const encodedCourseCode = encodeURIComponent(courseCode);
+    const response = await fetch(`${API_BASE_URL}/terms/${termId}/courses/${encodedCourseCode}/stats?hours=${hours}`);
+    return handleResponse<CourseStatsResponse>(response);
+};
+
+/**
+ * Fetches seat availability history and stats for a specific section.
+ */
+export const getSectionHistory = async (termId: string, courseCode: string, sectionKey: string, hours: number = 72): Promise<SectionHistoryResponse> => {
+    const encodedCourseCode = encodeURIComponent(courseCode);
+    const encodedSectionKey = encodeURIComponent(sectionKey);
+    const response = await fetch(`${API_BASE_URL}/terms/${termId}/courses/${encodedCourseCode}/sections/${encodedSectionKey}/history?hours=${hours}`);
+    return handleResponse<SectionHistoryResponse>(response);
+};

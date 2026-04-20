@@ -4,6 +4,7 @@ import { useCourseSelection } from '@/hooks/useCourseSelection';
 import CourseDetailsSkeleton from './CourseDetailsSkeleton';
 import WatchSectionDialog from './WatchSectionDialog';
 import SectionBlock from './SectionBlock';
+import CourseStatsPanel from './CourseStatsPanel';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Eye, Info } from 'lucide-react';
@@ -171,6 +172,9 @@ export const CourseDetailsDisplay: React.FC = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Course Stats Panel */}
+          <CourseStatsPanel termId={selectedTerm} courseCode={selectedCourse} />
+
           {/* Batch Watch Button */}
           {closedSections.length > 0 && (
             <div className="mb-4">
@@ -197,6 +201,8 @@ export const CourseDetailsDisplay: React.FC = () => {
               onWatchClick={handleWatchClick} // Pass down the callback
               isWatchMutationPending={addWatchMutation.isPending} // Pass down mutation state
               isLastBlock={index === courseDetailEntries.length - 1} // Pass info for separator
+              termId={selectedTerm ?? undefined}
+              courseCode={selectedCourse ?? undefined}
             />
           ))}
         </CardContent>

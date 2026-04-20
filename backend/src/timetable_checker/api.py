@@ -120,7 +120,7 @@ limiter = Limiter(
     get_remote_address, # Function to identify the client (by remote IP)
     app=app,
     default_limits=["300 per hour", "45 per minute", "3 per second"], # Global default limits
-    storage_uri="redis://localhost:6379", # Storage backend for rate limit counts
+    storage_uri=os.getenv("REDIS_URL", "memory://"), # Storage backend for rate limit counts
     strategy="fixed-window" # Rate limiting strategy
 )
 
@@ -998,6 +998,119 @@ def set_log_level():
     except Exception as e:
         log.error(f"Failed to set log level to '{level_name_upper}': {e}", exc_info=True)
         return jsonify({"error": "An internal error occurred while setting the log level."}), 500
+
+
+# --- Course Stats & History Endpoints ---
+
+@app.route('/terms/<string:term_id>/courses/<path:course_code>/stats', methods=['GET'])
+@limiter.limit("30 per hour; 10 per minute; 2 per second")
+def get_course_stats(term_id, course_code):
+    """
+    Endpoint: GET /terms/<term_id>/courses/<course_code>/stats
+    Purpose: Returns combined course-level request statistics and per-section
+             seat history/stats for sections that have snapshot data.
+    Query Parameters:
+        - hours (int, optional): Lookback window in hours. Default 72, max 168 (7 days).
+    Rate Limit: 30 per hour; 10 per minute; 2 per second per IP.
+    Responses:
+        - 200 OK: { request_stats: {...}, sections: { "<key>": { history: [...], stats: {...} } } }
+        - 400 Bad Request: Invalid term_id or course_code format.
+        - 404 Not Found: Term or course not found.
+        - 503 Service Unavailable: Client not initialized.
+    Cache: Public, 2 minutes max-age.
+    """
+    active_client = get_client_or_abort()
+    if isinstance(active_client, tuple): return active_client
+
+    if not term_id.isdigit():
+        return jsonify({"error": "Invalid term ID format. Must be numeric."}), 400
+
+    if not course_code or not re.match(r"^[A-Za-z0-9\s\-]+$", course_code.strip()):
+        return jsonify({"error": "Invalid course code format."}), 400
+
+    normalized_course_code = ' '.join(course_code.strip().upper().split())
+
+    # Validate hours parameter
+    hours = request.args.get('hours', 72, type=int)
+    hours = max(1, min(hours, 168))  # Clamp to 1-168
+
+    try:
+        # Validate term and course existence
+        available_terms = {t['id'] for t in active_client.get_terms()}
+        if term_id not in available_terms:
+            return jsonify({"error": f"Term ID '{term_id}' not found."}), 404
+
+        courses_in_term = active_client.get_courses(term_id)
+        if courses_in_term is None:
+            return jsonify({"error": f"Course list for term '{term_id}' not ready."}), 503
+        if normalized_course_code not in courses_in_term:
+            return jsonify({"error": f"Course '{normalized_course_code}' not found in term '{term_id}'."}), 404
+
+        # Get stats from storage
+        request_stats = active_client.storage.get_course_request_stats(term_id, normalized_course_code)
+        sections_data = active_client.storage.get_course_sections_with_history(term_id, normalized_course_code, hours)
+
+        response = jsonify({
+            "request_stats": request_stats,
+            "sections": sections_data,
+            "hours": hours,
+        })
+        response.headers['Cache-Control'] = 'public, max-age=120'
+        return response, 200
+
+    except Exception as e:
+        log.error(f"Error in course stats endpoint: {e}", exc_info=True)
+        return jsonify({"error": "An internal error occurred retrieving course statistics."}), 500
+
+
+@app.route('/terms/<string:term_id>/courses/<path:course_code>/sections/<string:section_key>/history', methods=['GET'])
+@limiter.limit("60 per hour; 15 per minute; 2 per second")
+def get_section_history(term_id, course_code, section_key):
+    """
+    Endpoint: GET /terms/<term_id>/courses/<course_code>/sections/<section_key>/history
+    Purpose: Returns seat availability history and stats for a specific section.
+    Query Parameters:
+        - hours (int, optional): Lookback window in hours. Default 72, max 168 (7 days).
+    Rate Limit: 60 per hour; 15 per minute; 2 per second per IP.
+    Responses:
+        - 200 OK: { history: [...], stats: {...} }
+        - 400 Bad Request: Invalid format.
+        - 404 Not Found: Term or course not found.
+    Cache: Public, 1 minute max-age.
+    """
+    active_client = get_client_or_abort()
+    if isinstance(active_client, tuple): return active_client
+
+    if not term_id.isdigit():
+        return jsonify({"error": "Invalid term ID format. Must be numeric."}), 400
+
+    if not course_code or not re.match(r"^[A-Za-z0-9\s\-]+$", course_code.strip()):
+        return jsonify({"error": "Invalid course code format."}), 400
+
+    if not section_key or not section_key.strip():
+        return jsonify({"error": "Invalid section key."}), 400
+
+    normalized_course_code = ' '.join(course_code.strip().upper().split())
+    section_key = section_key.strip()
+
+    hours = request.args.get('hours', 72, type=int)
+    hours = max(1, min(hours, 168))
+
+    try:
+        history = active_client.storage.get_section_history(term_id, normalized_course_code, section_key, hours)
+        stats = active_client.storage.get_section_stats(term_id, normalized_course_code, section_key, hours)
+
+        response = jsonify({
+            "history": history,
+            "stats": stats,
+            "hours": hours,
+        })
+        response.headers['Cache-Control'] = 'public, max-age=60'
+        return response, 200
+
+    except Exception as e:
+        log.error(f"Error in section history endpoint: {e}", exc_info=True)
+        return jsonify({"error": "An internal error occurred retrieving section history."}), 500
 
 
 # --- Error Handlers ---

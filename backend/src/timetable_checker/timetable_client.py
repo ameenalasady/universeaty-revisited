@@ -81,6 +81,7 @@ class McMasterTimetableClient:
         self.shutdown_event = threading.Event() # Added for graceful shutdown
 
         self.consecutive_empty_cycles = 0  # counts consecutive cycles where no useful data was returned
+        self._last_cleanup_time = time.time()  # Track last snapshot cleanup time
 
         self._initialize()
         # Start background tasks after the initial data load
@@ -457,6 +458,26 @@ class McMasterTimetableClient:
                 if not fetch_successful:
                     continue
 
+                # --- Record seat snapshots for all sections of watched courses ---
+                try:
+                    snapshot_batch = []
+                    for course_code_snap, course_sections_snap in term_course_details.items():
+                        if not course_sections_snap:
+                            continue
+                        for block_type_snap, sections_list_snap in course_sections_snap.items():
+                            for section_info_snap in sections_list_snap:
+                                snapshot_batch.append({
+                                    'term_id': term_id,
+                                    'course_code': course_code_snap,
+                                    'section_key': section_info_snap['key'],
+                                    'open_seats': section_info_snap['open_seats'],
+                                    'total_seats': section_info_snap['total_seats'],
+                                })
+                    if snapshot_batch:
+                        self.storage.record_seat_snapshots_batch(snapshot_batch)
+                except Exception:
+                    log.exception(f"Error recording seat snapshots for term {term_id}")
+
                 # Process requests for this term
                 for req in term_requests:
                     req_id = req.get('id')
@@ -549,6 +570,14 @@ class McMasterTimetableClient:
                  )
              except Exception:
                  log.exception("Failed to update request statuses in storage.")
+
+        # --- Periodic Snapshot Cleanup (once every 24 hours) ---
+        try:
+            if time.time() - self._last_cleanup_time > 86400:  # 24 hours
+                self.storage.cleanup_old_snapshots(days=30)
+                self._last_cleanup_time = time.time()
+        except Exception:
+            log.exception("Error during periodic snapshot cleanup.")
 
         log.info("Finished periodic check for watched courses.")
 
