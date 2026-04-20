@@ -30,7 +30,7 @@ const SectionRow: React.FC<SectionRowProps> = ({ section, onWatchClick, isWatchD
               </span>
             </TooltipTrigger>
             <TooltipContent side="right">
-              <p className="text-xs text-muted-foreground">Key: <span className="font-mono text-foreground">{section.key}</span></p>
+              <p className="text-xs opacity-80">Key: <span className="font-mono font-medium opacity-100">{section.key}</span></p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
