@@ -119,7 +119,7 @@ limiter = Limiter(
     get_remote_address, # Function to identify the client (by remote IP)
     app=app,
     default_limits=["300 per hour", "45 per minute", "3 per second"], # Global default limits
-    storage_uri="memory://", # Storage backend for rate limit counts
+    storage_uri="redis://localhost:6379", # Storage backend for rate limit counts
     strategy="fixed-window" # Rate limiting strategy
 )
 
