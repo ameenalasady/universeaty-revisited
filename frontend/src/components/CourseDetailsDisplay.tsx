@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { useCourseDetails, useAddWatchRequest, useTerms } from '@/hooks/useCourseData';
+import { useCourseDetails, useAddWatchRequest, useAddBatchWatchRequest, useTerms } from '@/hooks/useCourseData';
 import { useCourseSelection } from '@/hooks/useCourseSelection';
 import CourseDetailsSkeleton from './CourseDetailsSkeleton';
 import WatchSectionDialog from './WatchSectionDialog';
 import SectionBlock from './SectionBlock';
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Eye, Info } from 'lucide-react';
 import { CourseDetailsSection, ApiError } from '@/services/api';
@@ -24,9 +25,11 @@ export const CourseDetailsDisplay: React.FC = () => {
   // --- Local UI State ---
   const [watchSection, setWatchSection] = useState<CourseDetailsSection | null>(null);
   const [isWatchDialogOpen, setIsWatchDialogOpen] = useState(false);
+  const [isBatchMode, setIsBatchMode] = useState(false);
 
-  // --- Mutation Hook ---
+  // --- Mutation Hooks ---
   const addWatchMutation = useAddWatchRequest();
+  const addBatchWatchMutation = useAddBatchWatchRequest();
 
   // --- Derived State ---
   const termName = useMemo(() => {
@@ -34,50 +37,75 @@ export const CourseDetailsDisplay: React.FC = () => {
     return terms.find((t) => t.id === selectedTerm)?.name || 'Selected Term';
   }, [terms, selectedTerm]);
 
+  const closedSections = useMemo(() => {
+    if (!courseDetails) return [];
+    return Object.values(courseDetails)
+      .flat()
+      .filter((sec) => sec.open_seats === 0);
+  }, [courseDetails]);
+
   // --- Callbacks ---
   const handleWatchClick = useCallback((section: CourseDetailsSection) => {
     setWatchSection(section);
+    setIsBatchMode(false);
     setIsWatchDialogOpen(true);
   }, []); // No dependencies needed for this specific callback
 
   const handleWatchSubmit = useCallback((email: string) => {
-    if (!selectedTerm || !selectedCourse || !watchSection) {
-      toast.error("Missing Information", { description: "Cannot submit watch request. Course or section data is missing." });
+    if (!selectedTerm || !selectedCourse) {
+      toast.error("Missing Information", { description: "Cannot submit watch request. Course data is missing." });
       return;
     }
-    const payload = {
-      email: email,
-      term_id: selectedTerm,     // From context via useCourseSelection
-      course_code: selectedCourse, // From context via useCourseSelection
-      section_key: watchSection.key,
-    };
-    addWatchMutation.mutate(payload, {
-      onSuccess: (data) => { // data is now the WatchResponse on success
-        // On successful submission, save the email to localStorage for future use.
-        // Using a try-catch block is good practice for localStorage operations.
-        try {
-          localStorage.setItem('universeaty_userEmail', email);
-        } catch (e) {
-          console.warn("Failed to save email to localStorage:", e);
-        }
 
-        toast.success(data.message || "Watch request submitted successfully!");
-        setIsWatchDialogOpen(false);
-        setWatchSection(null); // Clear selection after success
-      },
-      onError: (err: Error | ApiError) => { // Explicitly type error, this will now be triggered
-        // err could be a generic Error or an ApiError
-        let errorMessage = "Failed to submit watch request.";
-        if (err instanceof ApiError) {
-          // You can access err.status and err.data here if needed
-          errorMessage = err.message;
-        } else if (err instanceof Error) {
-          errorMessage = err.message;
-        }
-        toast.error("Submission Failed", { description: errorMessage });
-      },
-    });
-  }, [selectedTerm, selectedCourse, watchSection, addWatchMutation]); // Dependencies include context values and mutation
+    try {
+      localStorage.setItem('universeaty_userEmail', email);
+    } catch (e) {
+      console.warn("Failed to save email to localStorage:", e);
+    }
+
+    if (isBatchMode) {
+      if (closedSections.length === 0) return;
+      const payload = {
+        email: email,
+        term_id: selectedTerm,
+        course_code: selectedCourse,
+        section_keys: closedSections.map(s => s.key),
+      };
+      addBatchWatchMutation.mutate(payload, {
+        onSuccess: (data) => {
+          toast.success(data.message || "Batch watch request submitted successfully!");
+          setIsWatchDialogOpen(false);
+        },
+        onError: (err: Error | ApiError) => {
+          let errorMessage = "Failed to submit batch watch request.";
+          if (err instanceof ApiError) errorMessage = err.message;
+          else if (err instanceof Error) errorMessage = err.message;
+          toast.error("Submission Failed", { description: errorMessage });
+        },
+      });
+    } else {
+      if (!watchSection) return;
+      const payload = {
+        email: email,
+        term_id: selectedTerm,
+        course_code: selectedCourse,
+        section_key: watchSection.key,
+      };
+      addWatchMutation.mutate(payload, {
+        onSuccess: (data) => {
+          toast.success(data.message || "Watch request submitted successfully!");
+          setIsWatchDialogOpen(false);
+          setWatchSection(null);
+        },
+        onError: (err: Error | ApiError) => {
+          let errorMessage = "Failed to submit watch request.";
+          if (err instanceof ApiError) errorMessage = err.message;
+          else if (err instanceof Error) errorMessage = err.message;
+          toast.error("Submission Failed", { description: errorMessage });
+        },
+      });
+    }
+  }, [selectedTerm, selectedCourse, watchSection, isBatchMode, closedSections, addWatchMutation, addBatchWatchMutation]);
 
   // --- Render Logic ---
 
@@ -143,6 +171,23 @@ export const CourseDetailsDisplay: React.FC = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Batch Watch Button */}
+          {closedSections.length > 0 && (
+            <div className="mb-4">
+               <Button
+                  variant="secondary"
+                  className="w-full sm:w-auto"
+                  onClick={() => {
+                     setIsBatchMode(true);
+                     setIsWatchDialogOpen(true);
+                  }}
+               >
+                  <Eye className="mr-2 h-4 w-4" />
+                  Watch All {closedSections.length} Closed Sections
+               </Button>
+            </div>
+          )}
+
           {/* Map entries and render SectionBlock */}
           {courseDetailEntries.map(([blockType, sections], index) => (
             <SectionBlock
@@ -164,11 +209,13 @@ export const CourseDetailsDisplay: React.FC = () => {
       <WatchSectionDialog
         isOpen={isWatchDialogOpen}
         onOpenChange={setIsWatchDialogOpen}
-        section={watchSection}           // From local state
-        termName={termName}               // Derived from context state + terms data
-        courseCode={selectedCourse}       // From context state
-        onSubmit={handleWatchSubmit}     // Callback using context state implicitly
-        isPending={addWatchMutation.isPending} // Mutation state
+        section={isBatchMode ? null : watchSection}
+        sections={isBatchMode ? closedSections : []}
+        isBatch={isBatchMode}
+        termName={termName}
+        courseCode={selectedCourse}
+        onSubmit={handleWatchSubmit}
+        isPending={isBatchMode ? addBatchWatchMutation.isPending : addWatchMutation.isPending}
       />
     </>
   );

@@ -283,6 +283,86 @@ class McMasterTimetableClient:
             log.exception("Unexpected error during storage interaction for watch request.")
             raise DatabaseError("An unexpected error occurred interacting with storage.", original_exception=unexpected_err)
 
+    def add_batch_course_watch_request(self, email: str, term_id: str, course_code: str, section_keys: List[str]) -> Tuple[List[str], List[int]]:
+        """
+        Validates and adds/updates multiple watch requests for a course.
+        """
+        log.info(f"Processing batch watch request: Email={email}, Term={term_id}, Course={course_code}, Sections={len(section_keys)}")
+
+        # --- Basic Input Validation ---
+        if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+            msg = "Invalid email format provided."
+            log.warning(f"Batch watch request failed validation: {msg} (Email: {email})")
+            raise InvalidInputError(msg)
+            
+        if not section_keys:
+            raise InvalidInputError("No section keys provided.")
+
+        # --- Validation using internal caches ---
+        with self.terms_lock:
+            if not any(term['id'] == term_id for term in self.terms):
+                 raise TermNotFoundError(term_id)
+
+        with self.courses_lock:
+             term_courses = self.courses.get(term_id)
+             if term_courses is None:
+                 raise DataNotReadyError(f"Course list for term '{term_id}'")
+             if course_code not in term_courses:
+                 raise CourseNotFoundError(course_code, term_id)
+
+        # --- Validation requiring live API data ---
+        log.info(f"Fetching live details for batch validation: Term={term_id}, Course={course_code}")
+        details: Dict[str, Dict[str, List[SectionInfo]]] = {}
+        try:
+            details = self.fetcher.fetch_course_details(term_id, [course_code])
+        except requests.exceptions.RequestException as req_err:
+            msg = f"Network error fetching live details for batch {course_code} (Term {term_id}): {req_err}"
+            raise ExternalApiError(msg, original_exception=req_err)
+        except Exception as fetch_err:
+            msg = f"Unexpected error fetching live details for batch {course_code} (Term {term_id}): {fetch_err}"
+            raise ExternalApiError(msg, original_exception=fetch_err)
+
+        if not details or course_code not in details or not details[course_code]:
+            msg = f"Could not retrieve live details for course '{course_code}'. It might not be offered currently."
+            raise ExternalApiError(msg)
+
+        course_details = details[course_code]
+        
+        # Flatten available sections into a map of key -> (section_display, open_seats)
+        available_sections_map = {}
+        for block_type, sections_list in course_details.items():
+            for section in sections_list:
+                display = f"{block_type} {section['section']}"
+                available_sections_map[section['key']] = (display, section['open_seats'])
+                
+        valid_sections_to_add = []
+        for key in section_keys:
+            if key not in available_sections_map:
+                log.warning(f"Batch watch skipping: Section {key} not found.")
+                continue
+            
+            display, open_seats = available_sections_map[key]
+            if open_seats > 0:
+                log.warning(f"Batch watch skipping: Section {display} already has {open_seats} open seats.")
+                continue
+                
+            valid_sections_to_add.append({
+                'section_key': key,
+                'section_display': display
+            })
+
+        if not valid_sections_to_add:
+            raise InvalidInputError("No valid closed sections were found to watch among the requested keys.")
+
+        # --- Save or Update Request via Storage ---
+        log.info(f"Validation successful. Submitting {len(valid_sections_to_add)} sections to storage batch_add.")
+        return self.storage.add_or_update_batch_requests(
+            email=email,
+            term_id=term_id,
+            course_code=course_code,
+            sections_data=valid_sections_to_add
+        )
+
     def _check_watched_courses(self):
         """
         Checks all pending watch requests using the data fetcher and updates storage.

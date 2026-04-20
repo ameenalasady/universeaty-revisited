@@ -8,6 +8,9 @@ import {
   CourseDetails,
   WatchRequestPayload,
   WatchResponse,
+  WatchBatchRequestPayload,
+  WatchBatchResponse,
+  addBatchWatchRequest,
   ApiError,
 } from '@/services/api';
 
@@ -55,5 +58,11 @@ export const useAddWatchRequest = () => {
 
   return useMutation<WatchResponse, ApiError | Error, WatchRequestPayload>({ // Error type can include ApiError
     mutationFn: addWatchRequest,
+  });
+};
+
+export const useAddBatchWatchRequest = () => {
+  return useMutation<WatchBatchResponse, ApiError | Error, WatchBatchRequestPayload>({
+    mutationFn: addBatchWatchRequest,
   });
 };

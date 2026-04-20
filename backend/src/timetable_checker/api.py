@@ -831,6 +831,83 @@ def add_watch_request():
         return jsonify({"error": "An unexpected internal error occurred."}), 500
 
 
+@app.route('/watch/batch', methods=['POST'])
+@limiter.limit("10 per hour; 2 per 10 seconds")
+def add_batch_watch_request():
+    """
+    Endpoint: POST /watch/batch
+    Purpose: Creates multiple watch resources in a single transaction.
+    """
+    active_client = get_client_or_abort()
+    if isinstance(active_client, tuple): return active_client
+
+    if not EMAIL_PASSWORD or not EMAIL_SENDER:
+        log.error("Attempted to add batch watch request, but email sender/password not configured.")
+        return jsonify({"error": "Notification system is not configured."}), 503
+
+    if not request.is_json:
+        return jsonify({"error": "Invalid request format. JSON payload required."}), 400
+
+    data = request.get_json()
+    required_fields = ["email", "term_id", "course_code", "section_keys"]
+    missing_fields = [field for field in required_fields if field not in data or data[field] is None]
+    if missing_fields:
+        return jsonify({"error": f"Missing required fields: {', '.join(missing_fields)}"}), 400
+
+    email = data.get("email")
+    term_id = data.get("term_id")
+    course_code = data.get("course_code")
+    section_keys = data.get("section_keys")
+
+    if not isinstance(section_keys, list):
+        return jsonify({"error": "'section_keys' must be an array of strings."}), 400
+        
+    if len(section_keys) == 0:
+        return jsonify({"error": "'section_keys' array cannot be empty."}), 400
+        
+    if len(section_keys) > 50:
+        return jsonify({"error": f"Batch payload exceeds the maximum of 50 sections."}), 400
+
+    if not isinstance(email, str) or not is_valid_email(email):
+         return jsonify({"error": "Invalid 'email' format."}), 400
+
+    if not isinstance(term_id, str) or not term_id.isdigit():
+         return jsonify({"error": "Invalid 'term_id' format."}), 400
+
+    if not isinstance(course_code, str) or not course_code.strip():
+         return jsonify({"error": "Invalid 'course_code' format."}), 400
+
+    normalized_course_code = ' '.join(course_code.strip().upper().split())
+
+    try:
+        messages, request_ids = active_client.add_batch_course_watch_request(
+            email=email.lower(),
+            term_id=term_id,
+            course_code=normalized_course_code,
+            section_keys=[str(k).strip() for k in section_keys]
+        )
+
+        return jsonify({
+            "message": f"Successfully processed {len(request_ids)} sections.",
+            "details": messages,
+            "request_ids": request_ids
+        }), 201
+
+    except InvalidInputError as e:
+        return jsonify({"error": str(e)}), 400
+    except TermNotFoundError as e:
+        return jsonify({"error": str(e)}), 400
+    except CourseNotFoundError as e:
+        return jsonify({"error": str(e)}), 400
+    except ExternalApiError as e:
+        return jsonify({"error": "Could not complete request due to an issue with the upstream service.", "details": str(e)}), 503
+    except DatabaseError as e:
+        return jsonify({"error": "A database error occurred while processing the request."}), 500
+    except Exception as e:
+        log.exception(f"Unexpected error during /watch/batch request processing")
+        return jsonify({"error": "An unexpected internal error occurred."}), 500
+
+
 # --- Endpoint for Log Level (Protected) ---
 @app.route('/admin/log/level', methods=['PUT'])
 @require_admin_key

@@ -222,6 +222,82 @@ class RequestStorage:
                     except sqlite3.Error as close_err:
                         log.error(f"Storage: Error closing database connection after add/update: {close_err}")
 
+    def add_or_update_batch_requests(self, email: str, term_id: str, course_code: str, sections_data: List[Dict[str, str]]) -> Tuple[List[str], List[int]]:
+        """
+        Adds or reactivates multiple watch requests in a single transaction.
+
+        Args:
+            email: User email.
+            term_id: Term ID.
+            course_code: Course code.
+            sections_data: List of dicts, each with 'section_key' and 'section_display'.
+
+        Returns:
+            Tuple containing:
+                - List of success messages for each section.
+                - List of successfully processed request IDs.
+        """
+        messages = []
+        request_ids = []
+
+        with self.db_lock:
+            conn = None
+            try:
+                conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+
+                cursor.execute("BEGIN TRANSACTION")
+
+                for section in sections_data:
+                    section_key = section['section_key']
+                    section_display = section.get('section_display', 'Unknown Section')
+
+                    cursor.execute(
+                        f"SELECT id, status FROM {self.WATCH_REQUESTS_TABLE} WHERE email = ? AND term_id = ? AND section_key = ?",
+                        (email, term_id, section_key)
+                    )
+                    existing_request = cursor.fetchone()
+
+                    if existing_request:
+                        existing_id = existing_request['id']
+                        if existing_request['status'] == self.STATUS_PENDING:
+                            messages.append(f"Request for {course_code} {section_display} is already pending (ID: {existing_id}).")
+                        else:
+                            cursor.execute(
+                                f"UPDATE {self.WATCH_REQUESTS_TABLE} SET status = ?, notified_at = NULL WHERE id = ?",
+                                (self.STATUS_PENDING, existing_id)
+                            )
+                            messages.append(f"Successfully reactivated your previous watch request (ID: {existing_id}) for {course_code} {section_display}.")
+                            request_ids.append(existing_id)
+                    else:
+                        cursor.execute(
+                            f"INSERT INTO {self.WATCH_REQUESTS_TABLE} (email, term_id, course_code, section_key, section_display, status) VALUES (?, ?, ?, ?, ?, ?)",
+                            (email, term_id, course_code, section_key, section_display, self.STATUS_PENDING)
+                        )
+                        request_id = cursor.lastrowid
+                        messages.append(f"Successfully added new watch request (ID: {request_id}) for {course_code} {section_display}.")
+                        request_ids.append(request_id)
+
+                conn.commit()
+                return messages, request_ids
+
+            except sqlite3.Error as e:
+                msg = f"Database error during batch add/update: {e}"
+                log.error(f"Storage: Batch operation failed: {msg}", exc_info=True)
+                if conn:
+                    try:
+                        conn.rollback()
+                    except sqlite3.Error as rb_err:
+                        log.error(f"Storage: Error during rollback: {rb_err}")
+                raise DatabaseError(message=msg, original_exception=e)
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except sqlite3.Error as close_err:
+                        log.error(f"Storage: Error closing database connection after batch: {close_err}")
+
     # --- get_pending_requests ---
     def get_pending_requests(self) -> List[Dict[str, Any]]:
         """

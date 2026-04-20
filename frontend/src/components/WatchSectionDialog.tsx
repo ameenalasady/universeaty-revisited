@@ -12,7 +12,9 @@ import { toast } from 'sonner';
 interface WatchSectionDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  section: CourseDetailsSection | null;
+  section?: CourseDetailsSection | null;
+  sections?: CourseDetailsSection[];
+  isBatch?: boolean;
   termName: string;
   courseCode: string;
   onSubmit: (email: string) => void;
@@ -23,6 +25,8 @@ export const WatchSectionDialog: React.FC<WatchSectionDialogProps> = ({
   isOpen,
   onOpenChange,
   section,
+  sections = [],
+  isBatch = false,
   termName,
   courseCode,
   onSubmit,
@@ -46,27 +50,36 @@ export const WatchSectionDialog: React.FC<WatchSectionDialogProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isValidEmail || isPending || !section) {
+    if (!isValidEmail || isPending) {
         if (!isValidEmail) toast.error("Invalid Email", { description: "Please enter a valid email address." });
+        return;
+    }
+    // For single requests, ensure section is valid. For batch, ensure sections array has items.
+    if ((!isBatch && !section) || (isBatch && sections.length === 0)) {
         return;
     }
     onSubmit(email);
   };
 
-  if (!section) return null;
+  if (!isOpen) return null;
+  if (!isBatch && !section) return null;
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>Watch Course Section</DialogTitle>
+            <DialogTitle>Watch {isBatch ? "All Closed Sections" : "Course Section"}</DialogTitle>
             <DialogDescription>
-              Get notified via email when a seat opens in{" "}
-              <span className="font-semibold">
-                {courseCode} {section?.block_type} {section?.section} ({section?.key})
-              </span>{" "}
-              for the <span className="font-semibold">{termName}</span> term.
+              {isBatch ? (
+                <>Get notified via email when a seat opens in <span className="font-semibold">ANY of the {sections.length} closed sections</span> in <span className="font-semibold">{courseCode}</span> for the <span className="font-semibold">{termName}</span> term.</>
+              ) : (
+                <>Get notified via email when a seat opens in{" "}
+                <span className="font-semibold">
+                  {courseCode} {section?.block_type} {section?.section} ({section?.key})
+                </span>{" "}
+                for the <span className="font-semibold">{termName}</span> term.</>
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -107,7 +120,7 @@ export const WatchSectionDialog: React.FC<WatchSectionDialogProps> = ({
               ) : (
                 <Eye className="mr-2 h-4 w-4" />
               )}
-              Watch This Section
+              {isBatch ? "Watch All Closed Sections" : "Watch This Section"}
             </Button>
           </DialogFooter>
         </form>

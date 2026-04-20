@@ -50,6 +50,19 @@ export interface WatchResponse {
     // error?: string; // No longer needed here if we throw errors
 }
 
+export interface WatchBatchRequestPayload {
+    email: string;
+    term_id: string;
+    course_code: string;
+    section_keys: string[];
+}
+
+export interface WatchBatchResponse {
+    message?: string;
+    details?: string[];
+    request_ids?: number[];
+}
+
 /**
  * === Custom API Error Class ===
  * Extends the native Error class to include HTTP status and original error data.
@@ -232,6 +245,46 @@ export const addWatchRequest = async (payload: WatchRequestPayload): Promise<Wat
         } else {
             // Fallback for unknown error types
             throw new Error("An unknown error occurred during the watch request.");
+        }
+     }
+};
+
+/**
+ * === API Function: Add Batch Watch Request ===
+ * Sends a POST request to the `/watch/batch` endpoint.
+ *
+ * @param {WatchBatchRequestPayload} payload The data for the batch watch request.
+ * @returns {Promise<WatchBatchResponse>} A promise resolving to a WatchBatchResponse.
+ * @throws {Error} Throws an error if the API call fails or a network error occurs.
+ */
+export const addBatchWatchRequest = async (payload: WatchBatchRequestPayload): Promise<WatchBatchResponse> => {
+     try {
+        const response = await fetch(`${API_BASE_URL}/watch/batch`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({
+                error: `Request failed with status ${response.status} ${response.statusText}`
+            }));
+            throw new ApiError(
+                errorData.error || `Request failed with status ${response.status}`,
+                response.status,
+                errorData
+            );
+        }
+        return await response.json() as WatchBatchResponse;
+
+     } catch (error) {
+        console.error("Network or other error during batch watch request:", error);
+        if (error instanceof Error) {
+            throw error;
+        } else {
+            throw new Error("An unknown error occurred during the batch watch request.");
         }
      }
 };
