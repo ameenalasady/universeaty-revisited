@@ -89,11 +89,12 @@ frontend domain) to make requests to this API, which might be served from a diff
 origin. It defines allowed origins using regular expressions for flexibility and enables
 support for credentials (like cookies or authorization headers) if needed.
 """
-# Allows http://localhost:<any_port>, http://127.0.0.1:<any_port>, and https://*.universeaty.ca
+# Allows http://localhost:<any_port>, http://127.0.0.1:<any_port>, and exact production origins
 allowed_origins = [
-    r"http://localhost(:\d+)?",
-    r"http://127\.0\.0\.1(:\d+)?",
-    r"https://(.*\.)?universeaty\.ca"
+    r"^http://localhost(:\d+)?$",
+    r"^http://127\.0\.0\.1(:\d+)?$",
+    r"^https://universeaty\.ca$",
+    r"^https://www\.universeaty\.ca$"
 ]
 # Apply CORS globally to the app with the specified origins and credential support
 CORS(app, origins=allowed_origins, supports_credentials=True)
