@@ -18,15 +18,18 @@ interface SectionHistoryChartProps {
   courseCode: string;
   sectionKey: string;
   sectionName: string;
+  /** Current live open seat count (from the course details API) */
+  currentOpenSeats?: number;
+  /** Current live total seat count */
+  currentTotalSeats?: number;
 }
 
 /**
- * Formats a UTC timestamp string into a relative time label (e.g. "2h ago", "1d ago").
+ * Formats a UTC epoch ms timestamp into a relative time label.
  */
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr + 'Z'); // Append Z to treat as UTC
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
+function formatRelativeTimeMs(epochMs: number): string {
+  const now = Date.now();
+  const diffMs = now - epochMs;
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMins / 60);
   const diffDays = Math.floor(diffHours / 24);
@@ -38,11 +41,18 @@ function formatRelativeTime(dateStr: string): string {
 }
 
 /**
- * Formats timestamp for tooltip display with full date & time.
+ * Formats epoch ms for the stats row summary (relative).
  */
-function formatTooltipTime(dateStr: string): string {
+function formatRelativeTime(dateStr: string): string {
   const date = new Date(dateStr + 'Z');
-  return date.toLocaleString(undefined, {
+  return formatRelativeTimeMs(date.getTime());
+}
+
+/**
+ * Formats epoch ms for tooltip display with full date & time.
+ */
+function formatTooltipTimeMs(epochMs: number): string {
+  return new Date(epochMs).toLocaleString(undefined, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -51,8 +61,8 @@ function formatTooltipTime(dateStr: string): string {
 }
 
 interface ChartDataPoint {
-  time: string;
-  rawTime: string;
+  /** Epoch milliseconds — used as numeric X-axis key for even spacing */
+  timestamp: number;
   openSeats: number;
   totalSeats: number;
 }
@@ -63,7 +73,7 @@ const CustomTooltip = ({ active, payload }: any) => {
     const data = payload[0].payload as ChartDataPoint;
     return (
       <div className="rounded-lg border border-border/60 bg-popover/95 backdrop-blur-sm px-3 py-2 shadow-xl">
-        <p className="text-xs text-muted-foreground mb-1">{formatTooltipTime(data.rawTime)}</p>
+        <p className="text-xs text-muted-foreground mb-1">{formatTooltipTimeMs(data.timestamp)}</p>
         <p className="text-sm font-semibold">
           <span className={data.openSeats > 0 ? 'text-green-400' : 'text-red-400'}>
             {data.openSeats}
@@ -81,19 +91,33 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
   courseCode,
   sectionKey,
   sectionName,
+  currentOpenSeats,
+  currentTotalSeats,
 }) => {
   const { data, isLoading, isError } = useSectionHistory(termId, courseCode, sectionKey);
 
   const chartData = useMemo<ChartDataPoint[]>(() => {
     if (!data?.history || data.history.length === 0) return [];
 
-    return data.history.map((snapshot) => ({
-      time: formatRelativeTime(snapshot.recorded_at),
-      rawTime: snapshot.recorded_at,
+    const points: ChartDataPoint[] = data.history.map((snapshot) => ({
+      timestamp: new Date(snapshot.recorded_at + 'Z').getTime(),
       openSeats: snapshot.open_seats,
       totalSeats: snapshot.total_seats,
     }));
-  }, [data]);
+
+    // Append a synthetic "now" point using the live seat count so the chart
+    // extends to the current moment and correctly reflects the current state.
+    const nowMs = Date.now();
+    const lastPoint = points[points.length - 1];
+    const liveOpenSeats = currentOpenSeats ?? lastPoint?.openSeats ?? 0;
+    const liveTotalSeats = currentTotalSeats ?? lastPoint?.totalSeats ?? 0;
+    // Only append if the last snapshot is more than 30 seconds old
+    if (!lastPoint || nowMs - lastPoint.timestamp > 30_000) {
+      points.push({ timestamp: nowMs, openSeats: liveOpenSeats, totalSeats: liveTotalSeats });
+    }
+
+    return points;
+  }, [data, currentOpenSeats, currentTotalSeats]);
 
   const maxSeats = useMemo(() => {
     if (chartData.length === 0) return 5;
@@ -162,7 +186,7 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
       {hasHistory ? (
         <div className="h-[120px] w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+            <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id={`gradient-${sectionKey}`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="hsl(142, 71%, 45%)" stopOpacity={0.3} />
@@ -175,12 +199,16 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
                 vertical={false}
               />
               <XAxis
-                dataKey="time"
+                dataKey="timestamp"
+                type="number"
+                scale="time"
+                domain={['dataMin', 'dataMax']}
                 tick={{ fontSize: 10, fill: 'hsl(0, 0%, 60%)' }}
                 tickLine={false}
                 axisLine={false}
-                interval="preserveStartEnd"
-                minTickGap={40}
+                tickFormatter={(ms: number) => formatRelativeTimeMs(ms)}
+                minTickGap={48}
+                tickCount={5}
               />
               <YAxis
                 domain={[0, maxSeats]}
@@ -188,7 +216,8 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
                 tickLine={false}
                 axisLine={false}
                 allowDecimals={false}
-                width={30}
+                width={24}
+                tickCount={Math.min(maxSeats + 1, 5)}
               />
               <RechartsTooltip
                 content={<CustomTooltip />}

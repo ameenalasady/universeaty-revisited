@@ -76,6 +76,8 @@ const SectionBlock: React.FC<SectionBlockProps> = ({
                         courseCode={courseCode}
                         sectionKey={section.key}
                         sectionName={`${blockType} ${section.section}`}
+                        currentOpenSeats={section.open_seats}
+                        currentTotalSeats={section.total_seats}
                       />
                     </TableCell>
                   </TableRow>
