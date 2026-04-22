@@ -125,6 +125,14 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
     return Math.max(maxOpen + 1, 2); // Ensure at least scale of 2
   }, [chartData]);
 
+  const isAlwaysOpen = useMemo(() => {
+    return chartData.length > 0 && chartData.every((d) => d.openSeats > 0);
+  }, [chartData]);
+
+  const isAlwaysClosed = useMemo(() => {
+    return chartData.length > 0 && chartData.every((d) => d.openSeats === 0);
+  }, [chartData]);
+
   if (isLoading) {
     return (
       <div className="p-4 space-y-3">
@@ -150,14 +158,16 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
       {/* Stats row */}
       {stats && (
         <div className="flex flex-wrap justify-center items-center gap-4 text-xs">
-          <div className="flex items-center gap-1.5 text-muted-foreground">
-            <TrendingUp className="h-3.5 w-3.5" />
-            <span>
-              Opened{' '}
-              <span className="font-semibold text-foreground">{stats.times_opened}</span>{' '}
-              time{stats.times_opened !== 1 ? 's' : ''}
-            </span>
-          </div>
+          {stats.times_opened > 0 && (
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <TrendingUp className="h-3.5 w-3.5" />
+              <span>
+                Opened{' '}
+                <span className="font-semibold text-foreground">{stats.times_opened}</span>{' '}
+                time{stats.times_opened !== 1 ? 's' : ''}
+              </span>
+            </div>
+          )}
           {stats.max_open_seats > 0 && (
             <div className="flex items-center gap-1.5 text-muted-foreground">
               <ArrowUp className="h-3.5 w-3.5" />
@@ -174,9 +184,19 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
               <span>Last opened: <span className="font-semibold text-foreground">{formatRelativeTime(stats.last_opened_at)}</span></span>
             </div>
           )}
-          {stats.times_opened === 0 && stats.total_snapshots > 0 && (
-            <Badge variant="outline" className="text-xs bg-red-500/10 text-red-300 border-red-500/20">
+          {isAlwaysOpen && (
+            <Badge variant="outline" className="text-xs bg-green-500/10 text-green-400 border-green-500/20">
+              Consistently Open
+            </Badge>
+          )}
+          {isAlwaysClosed && (
+            <Badge variant="outline" className="text-xs bg-red-500/10 text-red-400 border-red-500/20">
               No openings recorded
+            </Badge>
+          )}
+          {!isAlwaysOpen && !isAlwaysClosed && stats.times_opened === 0 && stats.total_snapshots > 0 && (
+            <Badge variant="outline" className="text-[10px] sm:text-xs bg-muted/10 text-muted-foreground border-muted/20">
+              No re-openings recorded
             </Badge>
           )}
         </div>
