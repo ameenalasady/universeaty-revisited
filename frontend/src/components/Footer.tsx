@@ -4,7 +4,7 @@ import { Coffee, Github, Signal } from "lucide-react";
 
 export const Footer: React.FC = () => {
   return (
-    <footer className="mt-6 py-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-muted-foreground border-t">
+    <footer className="mt-auto pt-8 pb-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-muted-foreground border-t border-border/50">
       {/* Ko-fi Link */}
       <Button
         variant="link"

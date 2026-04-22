@@ -185,17 +185,17 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
             </div>
           )}
           {isAlwaysOpen && (
-            <Badge variant="outline" className="text-xs bg-green-500/10 text-green-400 border-green-500/20">
+            <Badge variant="outline" className="text-xs bg-green-500/10 text-green-400 border-green-500/20 rounded-md">
               Consistently Open
             </Badge>
           )}
           {isAlwaysClosed && (
-            <Badge variant="outline" className="text-xs bg-red-500/10 text-red-400 border-red-500/20">
+            <Badge variant="outline" className="text-xs bg-red-500/10 text-red-400 border-red-500/20 rounded-md">
               No openings recorded
             </Badge>
           )}
           {!isAlwaysOpen && !isAlwaysClosed && stats.times_opened === 0 && stats.total_snapshots > 0 && (
-            <Badge variant="outline" className="text-[10px] sm:text-xs bg-muted/10 text-muted-foreground border-muted/20">
+            <Badge variant="outline" className="text-[10px] sm:text-xs bg-muted/10 text-muted-foreground border-muted/20 rounded-md">
               No re-openings recorded
             </Badge>
           )}

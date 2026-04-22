@@ -39,7 +39,7 @@ const SectionRow: React.FC<SectionRowProps> = ({ section, onWatchClick, isWatchD
         <Badge
           variant={hasOpenSeats ? "default" : "destructive"}
           className={cn(
-            "text-xs font-semibold px-3 py-1 tracking-wide",
+            "text-xs font-semibold px-3 py-1 tracking-wide rounded-md",
             hasOpenSeats
               ? "border-transparent bg-green-500/20 text-green-300 hover:bg-green-500/30"
               : "border-transparent bg-red-500/20 text-red-300 hover:bg-red-500/30"
@@ -60,7 +60,7 @@ const SectionRow: React.FC<SectionRowProps> = ({ section, onWatchClick, isWatchD
                     size="icon"
                     onClick={() => onToggleHistory(section.key)}
                     aria-label={`${isHistoryExpanded ? 'Hide' : 'Show'} history for section ${section.section}`}
-                    className={cn("h-8 w-8", isHistoryExpanded && "text-primary bg-primary/10")}
+                    className={cn("h-8 w-8 rounded-lg", isHistoryExpanded && "text-primary bg-primary/10")}
                   >
                     <BarChart3 className="h-4 w-4" />
                   </Button>
@@ -82,7 +82,7 @@ const SectionRow: React.FC<SectionRowProps> = ({ section, onWatchClick, isWatchD
                     onClick={() => onWatchClick(section)}
                     disabled={isWatchDisabled}
                     aria-label={`Watch section ${section.section}`}
-                    className="h-8 w-8"
+                    className="h-8 w-8 rounded-lg"
                   >
                     <Eye className="h-4 w-4" />
                   </Button>

@@ -47,7 +47,7 @@ const SectionCard: React.FC<SectionCardProps> = ({
           <Badge
             variant={hasOpenSeats ? "default" : "destructive"}
             className={cn(
-              "text-xs font-bold px-3 py-1 rounded-full",
+              "text-xs font-bold px-3 py-1 rounded-md",
               hasOpenSeats
                 ? "bg-green-500/10 text-green-400 border-green-500/20"
                 : "bg-red-500/10 text-red-400 border-red-500/20"
@@ -62,7 +62,7 @@ const SectionCard: React.FC<SectionCardProps> = ({
           <Button
             variant="outline"
             size="default"
-            className="flex-1 gap-2 font-semibold h-11"
+            className="flex-1 gap-2 font-semibold h-11 rounded-lg"
             onClick={() => onWatchClick(section)}
             disabled={isWatchDisabled}
           >
@@ -75,7 +75,7 @@ const SectionCard: React.FC<SectionCardProps> = ({
               variant="secondary"
               size="icon"
               className={cn(
-                "h-11 w-11 shrink-0 transition-colors",
+                "h-11 w-11 shrink-0 transition-colors rounded-lg",
                 isHistoryExpanded && "bg-primary/20 text-primary border-primary/30"
               )}
               onClick={() => onToggleHistory(section.key)}

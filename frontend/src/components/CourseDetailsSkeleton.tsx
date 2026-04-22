@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/table";
 
 const CourseDetailsSkeleton: React.FC = () => (
-  <Card className="mt-6 animate-pulse">
+  <Card className="mt-6 animate-pulse border-border/40 bg-card/30 backdrop-blur-sm">
     {" "}
     <CardHeader>
       {/* Skeleton for Course Title */}
@@ -32,17 +32,14 @@ const CourseDetailsSkeleton: React.FC = () => (
         <Table>
           <TableHeader>
             <TableRow>
-              {/* Mimic Table Head widths */}
+              {/* Mimic Table Head widths — 3 columns matching actual table */}
               <TableHead className="w-[100px]">
                 <Skeleton className="h-4 w-16 rounded" />
-              </TableHead>
-              <TableHead className="w-[120px]">
-                <Skeleton className="h-4 w-20 rounded" />
               </TableHead>
               <TableHead className="text-center w-[140px]">
                 <Skeleton className="h-4 w-24 mx-auto rounded" />
               </TableHead>
-              <TableHead className="text-right w-[80px]">
+              <TableHead className="text-right w-[100px]">
                 <Skeleton className="h-4 w-12 ml-auto rounded" />
               </TableHead>
             </TableRow>
@@ -51,23 +48,15 @@ const CourseDetailsSkeleton: React.FC = () => (
             {/* Render a few representative skeleton rows */}
             {[1, 2, 3].map((j) => (
               <TableRow key={`skeleton-row-${j}`}>
-                {/* Section Name Cell - Varying width */}
+                {/* Section Name Cell */}
                 <TableCell>
-                  <Skeleton
-                    className={`h-5 w-${j === 2 ? "10/12" : "full"} rounded`}
-                  />
+                  <Skeleton className="h-5 w-full rounded" />
                 </TableCell>
-                {/* Section Key Cell - Varying width */}
-                <TableCell>
-                  <Skeleton
-                    className={`h-5 w-${j === 1 ? "11/12" : "full"} rounded`}
-                  />
-                </TableCell>
-                {/* Availability Text Cell */}
+                {/* Availability Badge Cell */}
                 <TableCell className="text-center">
                   <Skeleton className="h-5 w-20 mx-auto rounded-md" />
                 </TableCell>
-                {/* Watch Button Cell */}
+                {/* Actions Cell */}
                 <TableCell className="text-right">
                   <Skeleton className="h-8 w-8 ml-auto rounded" />
                 </TableCell>

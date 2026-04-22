@@ -122,7 +122,7 @@ export const CourseDetailsDisplay: React.FC = () => {
   // Show error card only if a course is selected and an error occurred
   if (selectedCourse && isError) {
      return (
-       <Card className="mt-6 border-dashed border-destructive/50">
+       <Card className="mt-6 border-border/40 bg-card/30 backdrop-blur-sm">
          <CardHeader className="flex flex-row items-center gap-3">
            <Info className="h-6 w-6 text-destructive" />
            <div>
@@ -139,7 +139,7 @@ export const CourseDetailsDisplay: React.FC = () => {
   // Show "No Sections Found" card if a course is selected, not loading, but no details fetched
    if (selectedCourse && !isLoading && !isFetching && (!courseDetails || Object.keys(courseDetails).length === 0)) {
     return (
-      <Card className="mt-6 border-dashed border-muted">
+      <Card className="mt-6 border-border/40 bg-card/30 backdrop-blur-sm">
         <CardHeader className="flex flex-row items-center gap-3">
           <Info className="h-6 w-6 text-muted-foreground" />
           <div>
@@ -164,8 +164,8 @@ export const CourseDetailsDisplay: React.FC = () => {
 
   return (
     <>
-      <Card className="mt-6 border-none sm:border shadow-none sm:shadow-sm bg-transparent sm:bg-card">
-        <CardHeader className="px-0 sm:px-6">
+      <Card className="mt-6 border-border/40 bg-card/30 backdrop-blur-sm overflow-hidden flex flex-col gap-0 py-0">
+        <CardHeader className="px-4 sm:px-6 pt-6 pb-4">
           <CardTitle className="text-2xl sm:text-3xl font-bold">
             {selectedCourse}
           </CardTitle>
@@ -174,21 +174,21 @@ export const CourseDetailsDisplay: React.FC = () => {
             <span className="hidden sm:inline"> Click <Eye className="inline h-4 w-4 mx-1 align-middle" /> to watch a closed section.</span>
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-8 px-0 sm:px-6">
+        <CardContent className="space-y-8 px-4 sm:px-6 pb-8">
           {/* Course Stats Panel */}
           <CourseStatsPanel termId={selectedTerm} courseCode={selectedCourse} />
 
           {/* Batch Watch Button */}
           {closedSections.length > 0 && (
-            <div className="bg-primary/5 border border-primary/10 p-4 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="bg-muted/20 border border-border/40 p-4 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
                <div className="text-center sm:text-left">
                  <p className="font-bold text-lg leading-tight">Watch All Sections</p>
                  <p className="text-sm text-muted-foreground">There are {closedSections.length} closed sections for this course.</p>
                </div>
                <Button
-                  variant="default"
+                  variant="secondary"
                   size="lg"
-                  className="w-full sm:w-auto font-bold shadow-lg shadow-primary/20 h-12 px-8"
+                  className="w-full sm:w-auto font-bold shadow-sm border border-border/50 hover:bg-secondary/80 h-12 px-8"
                   onClick={() => {
                      setIsBatchMode(true);
                      setIsWatchDialogOpen(true);
@@ -216,7 +216,7 @@ export const CourseDetailsDisplay: React.FC = () => {
             ))}
           </div>
         </CardContent>
-        <CardFooter className="text-xs sm:text-sm text-muted-foreground border-t bg-muted/30 px-4 py-6 sm:px-6 mt-8 rounded-b-xl">
+        <CardFooter className="text-xs sm:text-sm text-muted-foreground border-t border-border/30 bg-muted/20 px-4 py-5 sm:px-6 m-0 w-full rounded-none">
           <div className="flex gap-3">
             <Info className="h-5 w-5 shrink-0 opacity-60" />
             <p>

@@ -3,8 +3,8 @@ import React from 'react';
 
 const CourseDetailsEmptyState: React.FC = () => {
   return (
-    <div className="text-center py-16 px-6 border-2 border-dashed border-muted/30 rounded-lg mt-6">
-      <div className="mx-auto h-12 w-12 text-muted-foreground flex items-center justify-center bg-muted/20 rounded-full">
+    <div className="text-center py-16 px-6 border border-border/40 rounded-xl mt-6 bg-card/30 backdrop-blur-sm">
+      <div className="mx-auto h-12 w-12 text-muted-foreground flex items-center justify-center bg-muted/20 rounded-xl">
         <Search className="h-6 w-6" />
       </div>
       <h3 className="mt-4 text-lg font-semibold">View Course Availability</h3>

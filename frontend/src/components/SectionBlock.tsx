@@ -124,7 +124,7 @@ const SectionBlock: React.FC<SectionBlockProps> = ({
         )}
       </div>
 
-      {!isLastBlock && <Separator className="my-8 md:my-10" />}
+      {!isLastBlock && <Separator className="my-10 border-border/40" />}
     </div>
   );
 };

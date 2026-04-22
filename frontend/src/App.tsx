@@ -56,12 +56,12 @@ function App() {
         <div className="container mx-auto p-4 md:p-8 lg:p-12 min-h-[100dvh] flex flex-col">
           <Toaster richColors position="top-right" theme="system" closeButton />
           <Header currentView={view} onViewChange={setView} />
-          <Separator />
+          <Separator className="mb-2" />
 
           <main className="flex-grow">
             {view === 'home' ? (
               <>
-                <Card className="my-6">
+                <Card className="my-6 border-border/40 bg-card/30 backdrop-blur-sm">
                   <CardHeader>
                     <CardTitle>Course Selection</CardTitle>
                     <CardDescription>

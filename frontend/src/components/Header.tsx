@@ -25,12 +25,12 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'home', onViewChan
       {onViewChange && (
         <div className="flex shrink-0 justify-center">
            <Button 
-              variant={currentView === 'manage' ? 'secondary' : 'outline'} 
-              size={currentView === 'manage' ? 'default' : 'sm'}
-              className="w-full sm:w-auto font-medium"
+              variant="outline"
+              size="default"
+              className="w-full sm:w-auto font-semibold rounded-lg"
               onClick={() => onViewChange(currentView === 'manage' ? 'home' : 'manage')}
            >
-               {currentView === 'manage' ? 'Back to Search' : 'Manage Watches'}
+               {currentView === 'manage' ? '← Back to Search' : 'Manage Watches'}
            </Button>
         </div>
       )}

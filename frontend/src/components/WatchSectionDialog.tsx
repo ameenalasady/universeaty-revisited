@@ -106,7 +106,7 @@ export const WatchSectionDialog: React.FC<WatchSectionDialogProps> = ({
           </div>
           <DialogFooter className="flex-col sm:flex-row sm:justify-end gap-2">
             <DialogClose asChild>
-              <Button type="button" variant="outline" disabled={isPending}>
+              <Button type="button" variant="outline" disabled={isPending} className="rounded-lg">
                 <XCircle className="mr-2 h-4 w-4" /> Cancel
               </Button>
             </DialogClose>
@@ -114,6 +114,7 @@ export const WatchSectionDialog: React.FC<WatchSectionDialogProps> = ({
               type="submit"
               disabled={isPending || !isValidEmail}
               aria-label="Submit watch request for this section"
+              className="rounded-lg"
             >
               {isPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

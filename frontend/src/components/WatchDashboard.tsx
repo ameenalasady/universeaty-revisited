@@ -38,16 +38,16 @@ export const WatchDashboard: React.FC = () => {
     const cancelledWatches = watches?.filter(w => w.status === 'cancelled') || [];
 
     const renderWatch = (w: UserWatch) => (
-        <div key={w.id} className="group relative border rounded-xl p-5 mb-4 bg-card/50 backdrop-blur-sm transition-all hover:border-primary/30 hover:bg-card/80">
+        <div key={w.id} className="group relative border border-border/40 rounded-xl p-5 mb-4 bg-muted/20 backdrop-blur-sm transition-all hover:border-primary/30 hover:bg-muted/40">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="space-y-1">
                     <div className="flex items-center gap-2">
                         <span className="font-bold text-xl tracking-tight">{w.course_code}</span>
                         <span className="text-muted-foreground font-medium">{w.section_display}</span>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium mt-0.5">
                         <span className="opacity-70">Requested</span>
-                        <span className="bg-muted px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider">
+                        <span className="bg-muted/50 border border-border/40 px-2 py-0.5 rounded-md text-[10px] uppercase font-bold tracking-wider">
                            {new Date(w.created_at + 'Z').toLocaleDateString()}
                         </span>
                     </div>
@@ -56,22 +56,22 @@ export const WatchDashboard: React.FC = () => {
                 <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-none border-muted/20">
                     <div className="flex gap-2">
                         {w.status === 'pending' && (
-                            <Badge variant="secondary" className="bg-yellow-500/10 text-yellow-600 border-yellow-500/20 font-bold px-3 py-1">
+                            <Badge variant="secondary" className="bg-yellow-500/10 text-yellow-600 border-yellow-500/20 font-bold px-3 py-1 rounded-md">
                                 Pending
                             </Badge>
                         )}
                         {w.status === 'notified' && (
-                            <Badge variant="default" className="bg-green-600 hover:bg-green-700 font-bold px-3 py-1 shadow-sm">
+                            <Badge variant="default" className="bg-green-600 hover:bg-green-700 font-bold px-3 py-1 shadow-sm rounded-md">
                                 Notified
                             </Badge>
                         )}
                         {w.status === 'error' && (
-                            <Badge variant="destructive" className="font-bold px-3 py-1">
+                            <Badge variant="destructive" className="font-bold px-3 py-1 rounded-md">
                                 Error
                             </Badge>
                         )}
                         {w.status === 'cancelled' && (
-                            <Badge variant="outline" className="text-muted-foreground font-bold px-3 py-1 border-dashed">
+                            <Badge variant="outline" className="text-muted-foreground font-bold px-3 py-1 border-dashed rounded-md">
                                 Cancelled
                             </Badge>
                         )}
@@ -100,7 +100,7 @@ export const WatchDashboard: React.FC = () => {
     return (
         <div className="space-y-8">
             <div>
-                <h3 className="text-xl font-medium mb-4">Active Watches</h3>
+                <h3 className="text-lg font-semibold tracking-tight mb-4">Active Watches</h3>
                 {activeWatches.length === 0 ? (
                     <p className="text-muted-foreground italic bg-muted/50 p-6 rounded-lg text-center">You don't have any active watches.</p>
                 ) : (
@@ -109,7 +109,7 @@ export const WatchDashboard: React.FC = () => {
             </div>
             {cancelledWatches.length > 0 && (
                 <div>
-                    <h3 className="text-xl font-medium mb-4 text-muted-foreground">Cancelled</h3>
+                    <h3 className="text-lg font-semibold tracking-tight mb-4 text-muted-foreground">Cancelled</h3>
                     <div className="opacity-60">
                         {cancelledWatches.map(renderWatch)}
                     </div>

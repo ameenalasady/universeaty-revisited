@@ -103,17 +103,17 @@ export const ManageWatches: React.FC = () => {
 
     if (step === 'authenticated') {
         return (
-            <Card className="my-6 border-none sm:border shadow-none sm:shadow-md bg-transparent sm:bg-card">
-                <CardHeader className="flex flex-row items-center justify-between pb-6 border-b border-muted/20 px-0 sm:px-6">
+            <Card className="my-6 border-border/40 bg-card/30 backdrop-blur-sm">
+                <CardHeader className="flex flex-row items-center justify-between pb-6 border-b border-border/30 px-4 sm:px-6">
                     <div>
-                        <CardTitle className="text-2xl sm:text-3xl font-bold">Manage Your Watches</CardTitle>
-                        <CardDescription className="text-sm sm:text-base mt-1">View and cancel your active watch requests.</CardDescription>
+                        <CardTitle className="text-2xl font-bold">Manage Your Watches</CardTitle>
+                        <CardDescription className="text-sm mt-1">View and cancel your active watch requests.</CardDescription>
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => logoutMutation.mutate()} className="ml-4 rounded-full px-4 border-muted-foreground/30 hover:bg-destructive/5 hover:text-destructive hover:border-destructive/30 transition-colors">
+                    <Button variant="outline" size="sm" onClick={() => logoutMutation.mutate()} className="ml-4 rounded-lg px-4 border-border/50 hover:bg-destructive/5 hover:text-destructive hover:border-destructive/30 transition-colors">
                         <LogOut className="h-4 w-4 mr-2" /> Logout
                     </Button>
                 </CardHeader>
-                <CardContent className="px-0 sm:px-6 pt-8">
+                <CardContent className="px-4 sm:px-6 pt-8">
                     <WatchDashboard />
                 </CardContent>
             </Card>
@@ -122,21 +122,21 @@ export const ManageWatches: React.FC = () => {
 
     return (
         <div className="flex flex-col items-center justify-center py-8 sm:py-12">
-            <Card className="w-full max-w-md border-none sm:border shadow-none sm:shadow-xl bg-transparent sm:bg-card overflow-hidden">
-                <div className="bg-primary/5 sm:bg-transparent p-8 sm:p-0">
+            <Card className="w-full max-w-md border-border/40 bg-card/30 backdrop-blur-sm overflow-hidden">
+                <div className="p-8 sm:p-0">
                     <CardHeader className="text-center sm:pt-8">
-                        <div className="mx-auto bg-primary/10 w-16 h-16 rounded-2xl flex items-center justify-center mb-4">
-                            <Eye className="h-8 w-8 text-primary" />
+                        <div className="mx-auto bg-primary/10 w-14 h-14 rounded-xl flex items-center justify-center mb-4">
+                            <Eye className="h-7 w-7 text-primary" />
                         </div>
-                        <CardTitle className="text-3xl font-bold tracking-tight">Manage Watches</CardTitle>
-                        <CardDescription className="text-base mt-2 px-4">
+                        <CardTitle className="text-2xl font-bold tracking-tight">Manage Watches</CardTitle>
+                        <CardDescription className="text-sm mt-2 px-4">
                             {step === 'email' ? 'Enter your email to receive a secure access code.' : 'Enter the code sent to your email.'}
                         </CardDescription>
                     </CardHeader>
                 </div>
-                <CardContent className="p-8">
+                <CardContent className="p-6 sm:p-8">
                     {step === 'email' ? (
-                        <form onSubmit={handleRequestCode} className="space-y-6">
+                        <form onSubmit={handleRequestCode} className="space-y-5">
                             <div className="space-y-2">
                                 <Label htmlFor="email" className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Email Address</Label>
                                 <Input 
@@ -146,16 +146,16 @@ export const ManageWatches: React.FC = () => {
                                     value={email} 
                                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} 
                                     required 
-                                    className="text-lg p-6 rounded-xl border-muted/50 focus:border-primary/50 focus:ring-primary/20 transition-all bg-muted/20"
+                                    className="h-12 text-base rounded-lg border-border/50 focus:border-primary/50 focus:ring-primary/20 transition-all bg-muted/20"
                                 />
                             </div>
-                            <Button type="submit" className="w-full text-lg py-7 rounded-xl font-bold shadow-lg shadow-primary/20" disabled={requestMutation.isPending}>
+                            <Button type="submit" className="w-full h-12 rounded-lg font-bold" disabled={requestMutation.isPending}>
                                 {requestMutation.isPending ? <Loader2 className="animate-spin mr-2 h-5 w-5" /> : null}
                                 Send Access Code
                             </Button>
                         </form>
                     ) : (
-                        <form onSubmit={handleVerifyCode} className="space-y-6">
+                        <form onSubmit={handleVerifyCode} className="space-y-5">
                             <div className="space-y-2">
                                 <Label htmlFor="email" className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Confirm Email</Label>
                                 <Input 
@@ -164,7 +164,7 @@ export const ManageWatches: React.FC = () => {
                                     value={email} 
                                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} 
                                     required 
-                                    className="text-lg p-6 rounded-xl bg-muted/40 opacity-70 cursor-not-allowed"
+                                    className="h-12 text-base rounded-lg bg-muted/40 opacity-70 cursor-not-allowed"
                                     disabled={!!email && requestMutation.isSuccess} 
                                 />
                             </div>
@@ -177,11 +177,11 @@ export const ManageWatches: React.FC = () => {
                                     value={token} 
                                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setToken(e.target.value)} 
                                     required 
-                                    className="uppercase text-center tracking-[0.2em] font-mono text-3xl p-8 rounded-xl border-muted/50 focus:border-primary/50 focus:ring-primary/20 transition-all bg-muted/20"
+                                    className="uppercase text-center tracking-[0.2em] font-mono text-2xl h-14 rounded-lg border-border/50 focus:border-primary/50 focus:ring-primary/20 transition-all bg-muted/20"
                                     maxLength={7}
                                 />
                             </div>
-                            <Button type="submit" className="w-full text-lg py-7 rounded-xl font-bold shadow-lg shadow-primary/20" disabled={verifyMutation.isPending}>
+                            <Button type="submit" className="w-full h-12 rounded-lg font-bold" disabled={verifyMutation.isPending}>
                                 {verifyMutation.isPending ? <Loader2 className="animate-spin mr-2 h-5 w-5" /> : null}
                                 Verify Code
                             </Button>
