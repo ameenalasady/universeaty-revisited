@@ -9,8 +9,8 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ currentView = 'home', onViewChange }) => {
   return (
-    <header className="pt-3 pb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-      <div className="text-left">
+    <header className="pt-3 pb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-center sm:text-left">
+      <div className="flex flex-col items-center sm:items-start">
         <h1 
            className="text-4xl sm:text-5xl font-bold tracking-tight cursor-pointer hover:opacity-80 transition-opacity"
            onClick={() => onViewChange && onViewChange('home')}
@@ -23,7 +23,7 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'home', onViewChan
       </div>
       
       {onViewChange && (
-        <div className="flex shrink-0">
+        <div className="flex shrink-0 justify-center">
            <Button 
               variant={currentView === 'manage' ? 'secondary' : 'outline'} 
               size={currentView === 'manage' ? 'default' : 'sm'}
