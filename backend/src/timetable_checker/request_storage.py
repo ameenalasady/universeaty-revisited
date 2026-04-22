@@ -3,10 +3,11 @@
 import sqlite3
 import os
 import threading
-from datetime import datetime
 from typing import List, Dict, Any, Tuple, Optional
 import logging
 import time
+import hashlib
+from datetime import datetime, timedelta, timezone
 
 from .config import DATABASE_PATH
 from .exceptions import AlreadyPendingError, DatabaseError
@@ -24,6 +25,7 @@ class RequestStorage:
     # --- Database Constants ---
     WATCH_REQUESTS_TABLE = "watch_requests"
     SEAT_SNAPSHOTS_TABLE = "seat_snapshots"
+    AUTH_TOKENS_TABLE = "auth_tokens"
     STATUS_PENDING = "pending"
     STATUS_NOTIFIED = "notified"
     STATUS_ERROR = "error"
@@ -99,6 +101,19 @@ class RequestStorage:
                 """)
                 cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_snapshots_lookup ON {self.SEAT_SNAPSHOTS_TABLE}(term_id, course_code, section_key, recorded_at)")
                 cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_snapshots_cleanup ON {self.SEAT_SNAPSHOTS_TABLE}(recorded_at)")
+
+                # --- Auth Tokens Table ---
+                cursor.execute(f"""
+                    CREATE TABLE IF NOT EXISTS {self.AUTH_TOKENS_TABLE} (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        email TEXT NOT NULL,
+                        token_hash TEXT NOT NULL,
+                        expires_at TIMESTAMP NOT NULL,
+                        used BOOLEAN NOT NULL DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_auth_email ON {self.AUTH_TOKENS_TABLE}(email)")
 
                 conn.commit()
                 log.info("Database schema checked/initialized successfully.")
@@ -373,7 +388,7 @@ class RequestStorage:
             try:
                 conn = sqlite3.connect(self.db_path, check_same_thread=False)
                 cursor = conn.cursor()
-                now_iso = datetime.now().isoformat() # Consistent timestamp for the batch
+                now_iso = datetime.now(timezone.utc).isoformat() # Consistent timestamp for the batch
 
                 # Use transactions for atomicity
                 cursor.execute("BEGIN TRANSACTION")
@@ -816,3 +831,109 @@ class RequestStorage:
                         conn.close()
                     except sqlite3.Error as close_err:
                         log.error(f"Storage: Error closing connection after snapshot cleanup: {close_err}")
+        return deleted_count
+
+    # --- Authentication Methods ---
+
+    def create_auth_token(self, email: str, raw_token: str, expires_in_minutes: int) -> bool:
+        """Stores a hashed auth token for a given email."""
+        token_hash = hashlib.sha256(raw_token.encode('utf-8')).hexdigest()
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=expires_in_minutes)).isoformat()
+        
+        with self.db_lock:
+            conn = None
+            try:
+                conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                cursor = conn.cursor()
+                cursor.execute(
+                    f"INSERT INTO {self.AUTH_TOKENS_TABLE} (email, token_hash, expires_at) VALUES (?, ?, ?)",
+                    (email.lower(), token_hash, expires_at)
+                )
+                conn.commit()
+                return True
+            except sqlite3.Error as e:
+                log.error(f"Storage: Error creating auth token: {e}")
+                return False
+            finally:
+                if conn: conn.close()
+
+    def verify_auth_token(self, email: str, raw_token: str) -> bool:
+        """Verifies an auth token and marks it as used if valid."""
+        token_hash = hashlib.sha256(raw_token.encode('utf-8')).hexdigest()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        
+        with self.db_lock:
+            conn = None
+            try:
+                conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                
+                # Find valid, unused token
+                cursor.execute(
+                    f"""SELECT id FROM {self.AUTH_TOKENS_TABLE} 
+                        WHERE email = ? AND token_hash = ? AND used = 0 AND expires_at > ?
+                        ORDER BY created_at DESC LIMIT 1""",
+                    (email.lower(), token_hash, now_iso)
+                )
+                row = cursor.fetchone()
+                
+                if row:
+                    # Mark as used
+                    cursor.execute(
+                        f"UPDATE {self.AUTH_TOKENS_TABLE} SET used = 1 WHERE id = ?", 
+                        (row['id'],)
+                    )
+                    conn.commit()
+                    return True
+                return False
+            except sqlite3.Error as e:
+                log.error(f"Storage: Error verifying auth token: {e}")
+                return False
+            finally:
+                if conn: conn.close()
+
+    # --- User Dashboard Methods ---
+
+    def get_requests_by_email(self, email: str) -> List[Dict[str, Any]]:
+        """Retrieves all watch requests for a specific email."""
+        requests = []
+        with self.db_lock:
+            conn = None
+            try:
+                conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute(
+                    f"""SELECT id, term_id, course_code, section_key, section_display, 
+                               status, created_at, notified_at 
+                        FROM {self.WATCH_REQUESTS_TABLE} 
+                        WHERE email = ?
+                        ORDER BY created_at DESC""",
+                    (email.lower(),)
+                )
+                requests = [dict(row) for row in cursor.fetchall()]
+            except sqlite3.Error as e:
+                log.error(f"Storage: Error fetching requests for email {email}: {e}")
+            finally:
+                if conn: conn.close()
+        return requests
+
+    def cancel_request(self, email: str, request_id: int) -> bool:
+        """Cancels a specific request belonging to the given email."""
+        with self.db_lock:
+            conn = None
+            try:
+                conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                cursor = conn.cursor()
+                cursor.execute(
+                    f"UPDATE {self.WATCH_REQUESTS_TABLE} SET status = ? WHERE id = ? AND email = ?",
+                    (self.STATUS_CANCELLED, request_id, email.lower())
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+            except sqlite3.Error as e:
+                log.error(f"Storage: Error cancelling request {request_id}: {e}")
+                return False
+            finally:
+                if conn: conn.close()

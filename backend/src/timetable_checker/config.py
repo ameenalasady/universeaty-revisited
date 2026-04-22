@@ -52,6 +52,11 @@ EMAIL_PASSWORD = os.environ.get('PASSWORD') # Ensure this key matches your .env 
 ADMIN_API_KEY = os.environ.get('ADMIN_API_KEY')
 BASE_URL_MYTIMETABLE = "https://mytimetable.mcmaster.ca"
 
+# Auth Settings
+JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'dev-secret-key-do-not-use-in-prod')
+AUTH_TOKEN_EXPIRY_MINUTES = int(os.environ.get('AUTH_TOKEN_EXPIRY_MINUTES', 15))
+JWT_EXPIRY_HOURS = int(os.environ.get('JWT_EXPIRY_HOURS', 24))
+
 # Client Timing Defaults
 DEFAULT_CHECK_INTERVAL_SECONDS = int(os.environ.get('DEFAULT_CHECK_INTERVAL_SECONDS', 60))     # Default 1 minute
 DEFAULT_UPDATE_INTERVAL_SECONDS = int(os.environ.get('DEFAULT_UPDATE_INTERVAL_SECONDS', 3600)) # Default 1 hour
@@ -73,5 +78,7 @@ MAX_SECTION_KEY_LENGTH = 100 # Generous limit for section keys
 if not EMAIL_SENDER: log.warning("Config: EMAIL_SENDER environment variable not set.")
 if not EMAIL_PASSWORD: log.warning("Config: EMAIL_PASSWORD environment variable not set. Email notifications will fail.")
 if not ADMIN_API_KEY: log.warning("Config: ADMIN_API_KEY environment variable not set. Protected endpoints may be inaccessible.")
+if JWT_SECRET_KEY == 'dev-secret-key-do-not-use-in-prod':
+    log.warning("Config: JWT_SECRET_KEY is using the default development value. PLEASE CHANGE THIS IN PRODUCTION!")
 
 log.debug(f"Configuration loading complete. Log Level set to: {logging.getLevelName(LOG_LEVEL)}")

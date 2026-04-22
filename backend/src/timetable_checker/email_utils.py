@@ -4,7 +4,7 @@ import os
 import re
 import logging
 from email.message import EmailMessage
-from datetime import datetime
+from datetime import datetime, timezone
 from jinja2 import Environment, FileSystemLoader, select_autoescape, TemplateNotFound, TemplateSyntaxError
 
 from .exceptions import NotificationSystemError, EmailRecipientInvalidError
@@ -64,7 +64,7 @@ def create_notification_email(
          return None
 
     subject = f"Universeaty Course Alert: Seats Open in {course_code}"
-    check_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S %Z')
+    check_time_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
 
     # --- Prepare Context Data for Jinja2 ---
 
@@ -107,6 +107,37 @@ def create_notification_email(
         # Catch other potential rendering errors (e.g., UndefinedError)
         log.exception(f"Error rendering Jinja2 template '{TEMPLATE_FILENAME}': {e}")
         return None
+
+
+def create_auth_email(auth_code: str, magic_link_url: str) -> tuple[str, str] | None:
+    """Generates the subject and HTML body for the auth email."""
+    if not jinja_env:
+        log.error("Cannot generate email content: Jinja2 environment not initialized.")
+        return None
+
+    subject = "Your Universeaty Access Code"
+    context = {
+        "auth_code": auth_code,
+        "magic_link_url": magic_link_url,
+        "current_year": datetime.now(timezone.utc).year,
+    }
+
+    try:
+        template = jinja_env.get_template("auth_email.html")
+        html_body = template.render(context)
+        return subject, html_body
+    except Exception as e:
+        log.exception(f"Error rendering Jinja2 template 'auth_email.html': {e}")
+        return None
+
+def send_auth_email(email_address: str, auth_code: str, magic_link_url: str) -> bool:
+    """Sends the authentication email with OTP and Magic Link."""
+    email_content = create_auth_email(auth_code, magic_link_url)
+    if not email_content:
+        return False
+    
+    subject, html_body = email_content
+    return send_email(email_address, subject, html_body)
 
 
 def send_email(email_address: str, subject: str, html_body: str) -> bool:

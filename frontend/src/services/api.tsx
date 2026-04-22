@@ -355,3 +355,80 @@ export const getSectionHistory = async (termId: string, courseCode: string, sect
     const response = await fetch(`${API_BASE_URL}/terms/${termId}/courses/${encodedCourseCode}/sections/${encodedSectionKey}/history?hours=${hours}`);
     return handleResponse<SectionHistoryResponse>(response);
 };
+
+// === Authentication & User Watch Management ===
+
+export interface AuthRequestPayload {
+    email: string;
+}
+
+export interface AuthVerifyPayload {
+    email: string;
+    token: string;
+}
+
+export interface AuthResponse {
+    message: string;
+}
+
+export interface UserWatch {
+    id: number;
+    term_id: string;
+    course_code: string;
+    section_key: string;
+    section_display: string;
+    status: string;
+    created_at: string;
+    notified_at: string | null;
+}
+
+export const requestAuthCode = async (payload: AuthRequestPayload): Promise<AuthResponse> => {
+    const response = await fetch(`${API_BASE_URL}/auth/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    return handleResponse<AuthResponse>(response);
+};
+
+export const getAuthStatus = async (): Promise<{ email: string }> => {
+    const response = await fetch(`${API_BASE_URL}/auth/status`, {
+        method: 'GET',
+        credentials: 'include',
+    });
+    return handleResponse<{ email: string }>(response);
+};
+
+export const verifyAuthCode = async (payload: AuthVerifyPayload): Promise<AuthResponse> => {
+    const response = await fetch(`${API_BASE_URL}/auth/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        credentials: 'include', // Needed to receive the HTTPOnly cookie
+    });
+    return handleResponse<AuthResponse>(response);
+};
+
+export const logoutUser = async (): Promise<AuthResponse> => {
+    const response = await fetch(`${API_BASE_URL}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include', // Needed to send and clear the HTTPOnly cookie
+    });
+    return handleResponse<AuthResponse>(response);
+};
+
+export const getUserWatches = async (): Promise<UserWatch[]> => {
+    const response = await fetch(`${API_BASE_URL}/user/watches`, {
+        method: 'GET',
+        credentials: 'include', // Needed to send the HTTPOnly cookie
+    });
+    return handleResponse<UserWatch[]>(response);
+};
+
+export const cancelUserWatch = async (requestId: number): Promise<{ message: string }> => {
+    const response = await fetch(`${API_BASE_URL}/user/watches/${requestId}`, {
+        method: 'DELETE',
+        credentials: 'include', // Needed to send the HTTPOnly cookie
+    });
+    return handleResponse<{ message: string }>(response);
+};

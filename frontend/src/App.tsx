@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Toaster } from "sonner";
 import {
   Card,
@@ -15,6 +16,7 @@ import TermSelector from "./components/TermSelector";
 import CourseSelector from "./components/CourseSelector";
 import CourseDetailsDisplay from "./components/CourseDetailsDisplay";
 import Footer from "./components/Footer";
+import ManageWatches from "./pages/ManageWatches";
 import { CourseSelectionProvider } from "@/contexts/CourseSelectionContext";
 
 /**
@@ -22,33 +24,45 @@ import { CourseSelectionProvider } from "@/contexts/CourseSelectionContext";
  * Main application shell. Wraps content with context providers.
  */
 function App() {
-  // Selection state is now managed by CourseSelectionProvider
+  const [view, setView] = useState<'home' | 'manage'>('home');
+
+  // Check if we arrived via a magic link
+  useEffect(() => {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.has('token')) {
+          setView('manage');
+      }
+  }, []);
 
   return (
     <TooltipProvider>
       <CourseSelectionProvider>
         <div className="container mx-auto p-4 md:p-8 lg:p-12 min-h-[100dvh] flex flex-col">
           <Toaster richColors position="top-right" theme="system" closeButton />
-          <Header />
+          <Header currentView={view} onViewChange={setView} />
           <Separator />
 
           <main className="flex-grow">
+            {view === 'home' ? (
+              <>
+                <Card className="my-6">
+                  <CardHeader>
+                    <CardTitle>Course Selection</CardTitle>
+                    <CardDescription>
+                      Choose a term and then select the course you're interested in.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                    <TermSelector />
+                    <CourseSelector />
+                  </CardContent>
+                </Card>
 
-            <Card className="my-6">
-              <CardHeader>
-                <CardTitle>Course Selection</CardTitle>
-                <CardDescription>
-                  Choose a term and then select the course you're interested in.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-                <TermSelector />
-                <CourseSelector />
-              </CardContent>
-            </Card>
-
-            <CourseDetailsDisplay />
-
+                <CourseDetailsDisplay />
+              </>
+            ) : (
+              <ManageWatches />
+            )}
           </main>
 
           <Footer />

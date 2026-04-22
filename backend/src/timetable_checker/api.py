@@ -24,10 +24,12 @@ from flask_limiter.util import get_remote_address
 from flask_cors import CORS
 import time
 from werkzeug.middleware.proxy_fix import ProxyFix
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import threading
 import requests
 import atexit
+import jwt
+import string
 
 # --- Import Configuration First ---
 # This module now handles path calculation and .env loading
@@ -43,6 +45,10 @@ from .config import (
     MAX_TERM_ID_LENGTH,
     MAX_COURSE_CODE_LENGTH,
     MAX_SECTION_KEY_LENGTH,
+    JWT_SECRET_KEY,
+    AUTH_TOKEN_EXPIRY_MINUTES,
+    JWT_EXPIRY_HOURS,
+    UNIVERSEATY_URL,
 )
 
 # --- Centralized Logging Setup ---
@@ -301,6 +307,23 @@ def require_admin_key(f):
         else:
             log.warning(f"Invalid API key provided for protected endpoint {request.path} from {request.remote_addr}")
             return jsonify({"error": "Forbidden: Invalid API key."}), 403 # Key provided but incorrect
+    return decorated_function
+
+def require_jwt_auth(f):
+    """Decorator to require a valid JWT session cookie for user endpoints."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        token = request.cookies.get('session')
+        if not token:
+            return jsonify({"error": "Unauthorized: No session token provided."}), 401
+        try:
+            payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=['HS256'])
+            g.user_email = payload['sub']
+        except jwt.ExpiredSignatureError:
+            return jsonify({"error": "Session expired. Please log in again."}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({"error": "Invalid session token."}), 401
+        return f(*args, **kwargs)
     return decorated_function
 
 # --- API Endpoints ---
@@ -861,10 +884,10 @@ def add_batch_watch_request():
 
     if not isinstance(section_keys, list):
         return jsonify({"error": "'section_keys' must be an array of strings."}), 400
-        
+
     if len(section_keys) == 0:
         return jsonify({"error": "'section_keys' array cannot be empty."}), 400
-        
+
     if len(section_keys) > 50:
         return jsonify({"error": f"Batch payload exceeds the maximum of 50 sections."}), 400
 
@@ -1112,6 +1135,110 @@ def get_section_history(term_id, course_code, section_key):
         log.error(f"Error in section history endpoint: {e}", exc_info=True)
         return jsonify({"error": "An internal error occurred retrieving section history."}), 500
 
+
+# --- Authentication & User Management Endpoints ---
+
+@app.route('/auth/status', methods=['GET'])
+@require_jwt_auth
+def auth_status():
+    """Checks if the user is authenticated and returns their email."""
+    return jsonify({"email": g.user_email}), 200
+
+@app.route('/auth/request', methods=['POST'])
+@limiter.limit("5 per hour")
+def auth_request():
+    """Generates an OTP/Magic Link and emails it to the user."""
+    active_client = get_client_or_abort()
+    if isinstance(active_client, tuple): return active_client
+
+    if not request.is_json:
+        return jsonify({"error": "Invalid request format."}), 400
+
+    email = request.json.get('email')
+    if not email or not isinstance(email, str) or len(email) > MAX_EMAIL_LENGTH or not is_valid_email(email):
+        log.warning(f"Auth request failed: Invalid email format or length: {email}")
+        return jsonify({"error": "Invalid email address."}), 400
+
+    # Generate 6-char auth code using cryptographically secure randomness
+    auth_code = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6))
+    auth_code = f"{auth_code[:3]}-{auth_code[3:]}"
+
+    if active_client.storage.create_auth_token(email, auth_code, AUTH_TOKEN_EXPIRY_MINUTES):
+        from .email_utils import send_auth_email
+        import urllib.parse
+        encoded_email = urllib.parse.quote(email)
+        magic_link = f"{UNIVERSEATY_URL}/manage?token={auth_code}&email={encoded_email}"
+        # Send email in background to not block response
+        threading.Thread(target=send_auth_email, args=(email, auth_code, magic_link), daemon=True).start()
+        return jsonify({"message": "Auth code sent."}), 200
+    return jsonify({"error": "Failed to generate auth token."}), 500
+
+@app.route('/auth/verify', methods=['POST'])
+@limiter.limit("10 per hour")
+def auth_verify():
+    """Verifies the OTP/Magic Link token and sets a JWT cookie."""
+    active_client = get_client_or_abort()
+    if isinstance(active_client, tuple): return active_client
+
+    if not request.is_json:
+        return jsonify({"error": "Invalid request format."}), 400
+
+    email = request.json.get('email')
+    token = request.json.get('token')
+
+    if not email or not token or not isinstance(email, str) or len(email) > MAX_EMAIL_LENGTH:
+        return jsonify({"error": "Invalid email or token."}), 400
+
+    if active_client.storage.verify_auth_token(email, token):
+        # Create JWT
+        payload = {
+            'sub': email.lower(),
+            'iat': datetime.now(timezone.utc),
+            'exp': datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRY_HOURS)
+        }
+        jwt_token = jwt.encode(payload, JWT_SECRET_KEY, algorithm='HS256')
+
+        response = jsonify({"message": "Authenticated successfully."})
+        # Set HTTPOnly cookie
+        response.set_cookie(
+            'session',
+            jwt_token,
+            httponly=True,
+            secure=True,
+            samesite='Strict',
+            max_age=JWT_EXPIRY_HOURS * 3600
+        )
+        return response, 200
+
+    return jsonify({"error": "Invalid or expired token."}), 401
+
+@app.route('/auth/logout', methods=['POST'])
+def auth_logout():
+    """Clears the session cookie."""
+    response = jsonify({"message": "Logged out."})
+    response.set_cookie('session', '', expires=0, httponly=True, secure=True, samesite='Strict')
+    return response, 200
+
+@app.route('/user/watches', methods=['GET'])
+@require_jwt_auth
+def get_user_watches():
+    """Returns all watch requests for the authenticated user."""
+    active_client = get_client_or_abort()
+    if isinstance(active_client, tuple): return active_client
+
+    watches = active_client.storage.get_requests_by_email(g.user_email)
+    return jsonify(watches), 200
+
+@app.route('/user/watches/<int:request_id>', methods=['DELETE'])
+@require_jwt_auth
+def cancel_user_watch(request_id):
+    """Cancels a specific watch request if it belongs to the user."""
+    active_client = get_client_or_abort()
+    if isinstance(active_client, tuple): return active_client
+
+    if active_client.storage.cancel_request(g.user_email, request_id):
+        return jsonify({"message": "Watch request cancelled."}), 200
+    return jsonify({"error": "Failed to cancel request or request not found."}), 404
 
 # --- Error Handlers ---
 """

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Universeaty Access Code</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+        .container { border: 1px solid #eaeaea; border-radius: 8px; padding: 30px; background-color: #ffffff; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .code-box { background-color: #f4f4f5; border-radius: 6px; padding: 15px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 2px; margin: 20px 0; }
+        .button-container { text-align: center; margin: 30px 0; }
+        .button { background-color: #18181b; color: #ffffff !important; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 500; display: inline-block; }
+        .footer { margin-top: 30px; font-size: 14px; color: #666; text-align: center; border-top: 1px solid #eaeaea; padding-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2 style="margin: 0;">universeaty.ca</h2>
+        </div>
+        
+        <p>Hello,</p>
+        <p>You requested an access code to manage your course watch requests on Universeaty. Here is your code:</p>
+        
+        <div class="code-box">
+            {{ auth_code }}
+        </div>
+        
+        <div class="button-container">
+            <p style="margin-bottom: 15px;">Or, click below to log in automatically:</p>
+            <a href="{{ magic_link_url }}" class="button">Open My Dashboard &rarr;</a>
+        </div>
+        
+        <p style="font-size: 14px; color: #666;">This code and link will expire in 15 minutes.</p>
+        
+        <div class="footer">
+            <p>If you didn't request this, you can safely ignore this email.</p>
+            <p>&copy; {{ current_year }} Universeaty.ca</p>
+        </div>
+    </div>
+</body>
+</html>
