@@ -24,15 +24,31 @@ import { CourseSelectionProvider } from "@/contexts/CourseSelectionContext";
  * Main application shell. Wraps content with context providers.
  */
 function App() {
-  const [view, setView] = useState<'home' | 'manage'>('home');
+  const [view, setView] = useState<'home' | 'manage'>(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('token') || urlParams.get('view') === 'manage') {
+        return 'manage';
+    }
+    return 'home';
+  });
 
-  // Check if we arrived via a magic link
+  // Sync URL with view state
   useEffect(() => {
-      const urlParams = new URLSearchParams(window.location.search);
-      if (urlParams.has('token')) {
-          setView('manage');
+    const urlParams = new URLSearchParams(window.location.search);
+    if (view === 'manage') {
+      if (urlParams.get('view') !== 'manage') {
+        urlParams.set('view', 'manage');
+        window.history.replaceState({}, '', `${window.location.pathname}?${urlParams.toString()}`);
       }
-  }, []);
+    } else {
+      if (urlParams.has('view')) {
+        urlParams.delete('view');
+        const search = urlParams.toString();
+        const newUrl = window.location.pathname + (search ? `?${search}` : '');
+        window.history.replaceState({}, '', newUrl);
+      }
+    }
+  }, [view]);
 
   return (
     <TooltipProvider>

@@ -28,7 +28,7 @@ export const ManageWatches: React.FC = () => {
             setStep('code');
             setCheckingAuth(false);
             // Clean up URL
-            window.history.replaceState({}, document.title, window.location.pathname);
+            window.history.replaceState({}, document.title, window.location.pathname + '?view=manage');
         } else {
             // Check if already logged in
             getAuthStatus()

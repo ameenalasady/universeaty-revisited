@@ -1167,7 +1167,7 @@ def auth_request():
         from .email_utils import send_auth_email
         import urllib.parse
         encoded_email = urllib.parse.quote(email)
-        magic_link = f"{UNIVERSEATY_URL}/manage?token={auth_code}&email={encoded_email}"
+        magic_link = f"{UNIVERSEATY_URL}/?token={auth_code}&email={encoded_email}"
         # Send email in background to not block response
         threading.Thread(target=send_auth_email, args=(email, auth_code, magic_link), daemon=True).start()
         return jsonify({"message": "Auth code sent."}), 200
