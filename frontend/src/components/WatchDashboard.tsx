@@ -38,32 +38,62 @@ export const WatchDashboard: React.FC = () => {
     const cancelledWatches = watches?.filter(w => w.status === 'cancelled') || [];
 
     const renderWatch = (w: UserWatch) => (
-        <div key={w.id} className="flex items-center justify-between p-4 border rounded-lg mb-3 bg-card">
-            <div>
-                <div className="font-semibold text-lg">{w.course_code} <span className="text-muted-foreground font-normal text-base">({w.section_display})</span></div>
-                <div className="text-sm text-muted-foreground mt-1">Requested: {new Date(w.created_at + 'Z').toLocaleString()}</div>
-                <div className="mt-2 flex gap-2">
-                    {w.status === 'pending' && <Badge variant="secondary">Pending</Badge>}
-                    {w.status === 'notified' && <Badge variant="default" className="bg-green-600 hover:bg-green-700">Notified</Badge>}
-                    {w.status === 'error' && <Badge variant="destructive">Error</Badge>}
-                    {w.status === 'cancelled' && <Badge variant="outline" className="text-muted-foreground">Cancelled</Badge>}
+        <div key={w.id} className="group relative border rounded-xl p-5 mb-4 bg-card/50 backdrop-blur-sm transition-all hover:border-primary/30 hover:bg-card/80">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                        <span className="font-bold text-xl tracking-tight">{w.course_code}</span>
+                        <span className="text-muted-foreground font-medium">{w.section_display}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
+                        <span className="opacity-70">Requested</span>
+                        <span className="bg-muted px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider">
+                           {new Date(w.created_at + 'Z').toLocaleDateString()}
+                        </span>
+                    </div>
+                </div>
+
+                <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-none border-muted/20">
+                    <div className="flex gap-2">
+                        {w.status === 'pending' && (
+                            <Badge variant="secondary" className="bg-yellow-500/10 text-yellow-600 border-yellow-500/20 font-bold px-3 py-1">
+                                Pending
+                            </Badge>
+                        )}
+                        {w.status === 'notified' && (
+                            <Badge variant="default" className="bg-green-600 hover:bg-green-700 font-bold px-3 py-1 shadow-sm">
+                                Notified
+                            </Badge>
+                        )}
+                        {w.status === 'error' && (
+                            <Badge variant="destructive" className="font-bold px-3 py-1">
+                                Error
+                            </Badge>
+                        )}
+                        {w.status === 'cancelled' && (
+                            <Badge variant="outline" className="text-muted-foreground font-bold px-3 py-1 border-dashed">
+                                Cancelled
+                            </Badge>
+                        )}
+                    </div>
+
+                    {w.status !== 'cancelled' && (
+                        <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-10 w-10 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-full transition-colors"
+                            onClick={() => cancelMutation.mutate(w.id)}
+                            disabled={cancelMutation.isPending}
+                        >
+                            {cancelMutation.isPending && cancelMutation.variables === w.id ? (
+                                <Loader2 className="h-5 w-5 animate-spin" />
+                            ) : (
+                                <Trash2 className="h-5 w-5" />
+                            )}
+                        </Button>
+                    )}
                 </div>
             </div>
-            {w.status !== 'cancelled' && (
-                <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    onClick={() => cancelMutation.mutate(w.id)}
-                    disabled={cancelMutation.isPending}
-                >
-                    {cancelMutation.isPending && cancelMutation.variables === w.id ? (
-                         <Loader2 className="h-5 w-5 animate-spin" />
-                    ) : (
-                         <Trash2 className="h-5 w-5" />
-                    )}
-                </Button>
-            )}
         </div>
     );
 

@@ -3,7 +3,7 @@ import { useCourseStats } from '@/hooks/useCourseData';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Activity, Eye, TrendingUp, Users, Flame } from 'lucide-react';
+import { Activity, TrendingUp, Users, Flame } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface CourseStatsPanelProps {
@@ -76,61 +76,56 @@ const CourseStatsPanel: React.FC<CourseStatsPanelProps> = ({ termId, courseCode 
   const hasWatchedSections = request_stats.most_watched_sections.length > 0;
 
   return (
-    <Card className="mb-4 border-muted/40 bg-card/60 backdrop-blur-sm animate-in fade-in slide-in-from-top-2 duration-300">
-      <CardContent className="py-3 px-4">
-        <div className="flex flex-col items-center gap-3 sm:gap-y-3 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-x-6">
-          {/* Top Row Metrics (Requests, Demand, 24h views) */}
-          <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-center sm:gap-4">
-            {/* Request Activity */}
-            <div className="flex items-center justify-center gap-2 text-sm shrink-0">
-              <Users className="h-4 w-4 text-muted-foreground" />
-              <span className="text-muted-foreground text-center">
-                <span className="font-semibold text-foreground">{request_stats.total_requests}</span>
-                {' '}watch request{request_stats.total_requests !== 1 ? 's' : ''}
-                {request_stats.active_requests > 0 && (
-                  <span className="ml-1 inline-block">
-                    (<span className="text-primary font-semibold">{request_stats.active_requests}</span> active)
-                  </span>
-                )}
-              </span>
+    <Card className="mb-4 border-none sm:border bg-primary/[0.03] sm:bg-card/60 backdrop-blur-sm animate-in fade-in slide-in-from-top-2 duration-300">
+      <CardContent className="py-4 px-4 sm:py-3">
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          {/* Main Metrics */}
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-8">
+            {/* Request Count */}
+            <div className="flex items-center gap-3">
+              <div className="bg-primary/10 p-2 rounded-lg">
+                <Users className="h-5 w-5 text-primary" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-2xl font-bold leading-none">
+                  {request_stats.total_requests}
+                </span>
+                <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">
+                  Total Watches
+                </span>
+              </div>
             </div>
 
-            {/* Demand Level & Recent Activity Row (Mobile: together, Desktop: split) */}
-            <div className="flex items-center justify-center gap-3">
-              {request_stats.active_requests > 0 && (
-                <Badge variant="outline" className={cn("text-xs font-medium gap-1 shrink-0", demand.color)}>
-                  {demand.icon}
-                  {demand.label} Demand
-                </Badge>
-              )}
-
+            {/* Demand Badge */}
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className={cn("text-xs py-1.5 px-3 font-bold gap-1.5 rounded-full border-2", demand.color)}>
+                {demand.icon}
+                {demand.label} Demand
+              </Badge>
               {request_stats.requests_last_24h > 0 && (
-                <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground shrink-0 border-l border-muted/50 pl-3 sm:border-none sm:pl-0">
-                  <Eye className="h-3.5 w-3.5" />
-                  <span>
-                    <span className="font-semibold text-foreground">{request_stats.requests_last_24h}</span> in last 24h
-                  </span>
-                </div>
+                <Badge variant="secondary" className="text-[10px] font-bold bg-muted/50 text-muted-foreground border-none">
+                  +{request_stats.requests_last_24h} new
+                </Badge>
               )}
             </div>
           </div>
 
-          {/* Most Watched (top 3 only, keep it compact) */}
+          {/* Most Watched Sections */}
           {hasWatchedSections && (
-            <div className="flex flex-col items-center gap-1.5 sm:flex-row sm:justify-center text-xs text-muted-foreground pt-1 sm:pt-0 sm:border-l sm:border-muted/50 sm:pl-6">
-              <div className="flex items-center justify-center gap-1.5 shrink-0">
+            <div className="flex flex-col gap-2 sm:items-end">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground uppercase tracking-widest">
                 <TrendingUp className="h-3.5 w-3.5" />
-                <span>Most watched:</span>
+                <span>Trending Sections</span>
               </div>
-              <div className="flex flex-wrap justify-center gap-1.5">
+              <div className="flex flex-wrap gap-2 sm:justify-end">
                 {request_stats.most_watched_sections.slice(0, 3).map((sec) => (
                   <Badge
                     key={sec.section_key}
                     variant="secondary"
-                    className="text-xs py-0 px-1.5 font-normal whitespace-nowrap bg-muted/50 text-muted-foreground hover:bg-muted/80"
+                    className="text-xs py-1 px-2.5 font-medium bg-background border border-muted/50 shadow-sm"
                   >
                     {sec.section_display}
-                    <span className="ml-1 opacity-60">({sec.request_count})</span>
+                    <span className="ml-1.5 text-primary font-bold">{sec.request_count}</span>
                   </Badge>
                 ))}
               </div>

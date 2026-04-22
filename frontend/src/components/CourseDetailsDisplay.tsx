@@ -164,50 +164,66 @@ export const CourseDetailsDisplay: React.FC = () => {
 
   return (
     <>
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>Available Sections: {selectedCourse}</CardTitle>
-          <CardDescription>
-            Sections for <span className="font-semibold">{selectedCourse}</span> in the <span className="font-semibold">{termName}</span> term. Click <Eye className="inline h-4 w-4 mx-1 align-middle" /> to watch a closed section.
+      <Card className="mt-6 border-none sm:border shadow-none sm:shadow-sm bg-transparent sm:bg-card">
+        <CardHeader className="px-0 sm:px-6">
+          <CardTitle className="text-2xl sm:text-3xl font-bold">
+            {selectedCourse}
+          </CardTitle>
+          <CardDescription className="text-sm sm:text-base">
+            Sections for <span className="font-semibold">{selectedCourse}</span> in <span className="font-semibold">{termName}</span>. 
+            <span className="hidden sm:inline"> Click <Eye className="inline h-4 w-4 mx-1 align-middle" /> to watch a closed section.</span>
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-8 px-0 sm:px-6">
           {/* Course Stats Panel */}
           <CourseStatsPanel termId={selectedTerm} courseCode={selectedCourse} />
 
           {/* Batch Watch Button */}
           {closedSections.length > 0 && (
-            <div className="mb-4">
+            <div className="bg-primary/5 border border-primary/10 p-4 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+               <div className="text-center sm:text-left">
+                 <p className="font-bold text-lg leading-tight">Watch All Sections</p>
+                 <p className="text-sm text-muted-foreground">There are {closedSections.length} closed sections for this course.</p>
+               </div>
                <Button
-                  variant="secondary"
-                  className="w-full sm:w-auto"
+                  variant="default"
+                  size="lg"
+                  className="w-full sm:w-auto font-bold shadow-lg shadow-primary/20 h-12 px-8"
                   onClick={() => {
                      setIsBatchMode(true);
                      setIsWatchDialogOpen(true);
                   }}
                >
-                  <Eye className="mr-2 h-4 w-4" />
-                  Watch All {closedSections.length} Closed Sections
+                  <Eye className="mr-2 h-5 w-5" />
+                  Watch All ({closedSections.length})
                </Button>
             </div>
           )}
 
           {/* Map entries and render SectionBlock */}
-          {courseDetailEntries.map(([blockType, sections], index) => (
-            <SectionBlock
-              key={blockType}
-              blockType={blockType}
-              sections={sections}
-              onWatchClick={handleWatchClick} // Pass down the callback
-              isWatchMutationPending={addWatchMutation.isPending} // Pass down mutation state
-              isLastBlock={index === courseDetailEntries.length - 1} // Pass info for separator
-              termId={selectedTerm ?? undefined}
-              courseCode={selectedCourse ?? undefined}
-            />
-          ))}
+          <div className="space-y-12">
+            {courseDetailEntries.map(([blockType, sections], index) => (
+              <SectionBlock
+                key={blockType}
+                blockType={blockType}
+                sections={sections}
+                onWatchClick={handleWatchClick}
+                isWatchMutationPending={addWatchMutation.isPending}
+                isLastBlock={index === courseDetailEntries.length - 1}
+                termId={selectedTerm ?? undefined}
+                courseCode={selectedCourse ?? undefined}
+              />
+            ))}
+          </div>
         </CardContent>
-        <CardFooter className="text-sm text-muted-foreground">
-          <Info className="inline h-4 w-4 mr-1 align-middle" /> Seat availability is updated periodically. Notifications are sent when a watched seat becomes available.
+        <CardFooter className="text-xs sm:text-sm text-muted-foreground border-t bg-muted/30 px-4 py-6 sm:px-6 mt-8 rounded-b-xl">
+          <div className="flex gap-3">
+            <Info className="h-5 w-5 shrink-0 opacity-60" />
+            <p>
+              Seat availability is updated periodically. Notifications are sent when a watched seat becomes available. 
+              We track historical trends to help you decide which sections to watch.
+            </p>
+          </div>
         </CardFooter>
       </Card>
 

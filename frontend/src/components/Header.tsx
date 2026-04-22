@@ -9,23 +9,25 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ currentView = 'home', onViewChange }) => {
   return (
-    <header className="pt-3 pb-6 flex items-center justify-between">
+    <header className="pt-3 pb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
       <div className="text-left">
         <h1 
-           className="text-3xl sm:text-4xl tracking-tight cursor-pointer"
+           className="text-4xl sm:text-5xl font-bold tracking-tight cursor-pointer hover:opacity-80 transition-opacity"
            onClick={() => onViewChange && onViewChange('home')}
         >
           universeaty.ca
         </h1>
-        <p className="text-muted-foreground mt-2 max-w-xl">
+        <p className="text-muted-foreground mt-1 max-w-xl text-sm sm:text-base">
           Get notified when a seat opens up!
         </p>
       </div>
       
       {onViewChange && (
-        <div>
+        <div className="flex shrink-0">
            <Button 
               variant={currentView === 'manage' ? 'secondary' : 'outline'} 
+              size={currentView === 'manage' ? 'default' : 'sm'}
+              className="w-full sm:w-auto font-medium"
               onClick={() => onViewChange(currentView === 'manage' ? 'home' : 'manage')}
            >
                {currentView === 'manage' ? 'Back to Search' : 'Manage Watches'}
