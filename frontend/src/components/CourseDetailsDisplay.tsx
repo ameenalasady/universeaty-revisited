@@ -7,7 +7,7 @@ import SectionBlock from './SectionBlock';
 import CourseStatsPanel from './CourseStatsPanel';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Eye, Info } from 'lucide-react';
+import { Eye, Info, Heart, X } from 'lucide-react';
 import { CourseDetailsSection, ApiError } from '@/services/api';
 import { toast } from 'sonner';
 import CourseDetailsEmptyState from './CourseDetailsEmptyState';
@@ -27,6 +27,25 @@ export const CourseDetailsDisplay: React.FC = () => {
   const [watchSection, setWatchSection] = useState<CourseDetailsSection | null>(null);
   const [isWatchDialogOpen, setIsWatchDialogOpen] = useState(false);
   const [isBatchMode, setIsBatchMode] = useState(false);
+  const [showDonationBanner, setShowDonationBanner] = useState(false);
+
+  // --- Donation Banner Logic ---
+  const triggerDonationBanner = useCallback(() => {
+    try {
+      const lastShown = localStorage.getItem('universeaty_donation_banner_shown_at');
+      const now = Date.now();
+      if (!lastShown || now - parseInt(lastShown) > 24 * 60 * 60 * 1000) {
+        setShowDonationBanner(true);
+        localStorage.setItem('universeaty_donation_banner_shown_at', now.toString());
+      }
+    } catch (e) {
+      console.warn("Failed to read/write donation banner state from localStorage:", e);
+    }
+  }, []);
+
+  const dismissDonationBanner = useCallback(() => {
+    setShowDonationBanner(false);
+  }, []);
 
   // --- Mutation Hooks ---
   const addWatchMutation = useAddWatchRequest();
@@ -76,6 +95,7 @@ export const CourseDetailsDisplay: React.FC = () => {
         onSuccess: (data) => {
           toast.success(data.message || "Batch watch request submitted successfully!");
           setIsWatchDialogOpen(false);
+          triggerDonationBanner();
         },
         onError: (err: Error | ApiError) => {
           let errorMessage = "Failed to submit batch watch request.";
@@ -97,6 +117,7 @@ export const CourseDetailsDisplay: React.FC = () => {
           toast.success(data.message || "Watch request submitted successfully!");
           setIsWatchDialogOpen(false);
           setWatchSection(null);
+          triggerDonationBanner();
         },
         onError: (err: Error | ApiError) => {
           let errorMessage = "Failed to submit watch request.";
@@ -106,7 +127,7 @@ export const CourseDetailsDisplay: React.FC = () => {
         },
       });
     }
-  }, [selectedTerm, selectedCourse, watchSection, isBatchMode, closedSections, addWatchMutation, addBatchWatchMutation]);
+  }, [selectedTerm, selectedCourse, watchSection, isBatchMode, closedSections, addWatchMutation, addBatchWatchMutation, triggerDonationBanner]);
 
   // --- Render Logic ---
 
@@ -177,6 +198,39 @@ export const CourseDetailsDisplay: React.FC = () => {
         <CardContent className="space-y-8 px-4 sm:px-6 pb-8">
           {/* Course Stats Panel */}
           <CourseStatsPanel termId={selectedTerm} courseCode={selectedCourse} />
+
+          {/* Donation Banner */}
+          {showDonationBanner && (
+            <div className="bg-primary/5 border border-primary/20 p-5 lg:pr-14 rounded-xl flex flex-col lg:flex-row items-center justify-between gap-6 relative overflow-hidden transition-all duration-500 ease-in-out animate-in fade-in slide-in-from-top-4">
+               <div className="absolute top-2 right-2">
+                 <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-primary/10 text-muted-foreground" onClick={dismissDonationBanner}>
+                   <X className="h-4 w-4" />
+                 </Button>
+               </div>
+               <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left z-10 w-full">
+                 <div className="flex bg-primary/10 p-3 rounded-full text-primary shrink-0">
+                    <Heart className="h-6 w-6" />
+                 </div>
+                 <div className="flex-1 sm:pr-6">
+                   <p className="font-bold text-lg leading-tight mb-2 sm:mb-1 text-foreground">
+                      Support Universeaty!
+                   </p>
+                   <p className="text-sm text-muted-foreground">
+                      This project is run out-of-pocket and has processed over 20,000 watch requests. 
+                      If it helped you get a seat, please consider supporting the development.
+                   </p>
+                 </div>
+               </div>
+               <Button
+                  variant="default"
+                  size="lg"
+                  className="w-full lg:w-auto font-bold shadow-md z-10 whitespace-nowrap bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary"
+                  onClick={() => window.open('https://ko-fi.com/ameenalasady', '_blank')}
+               >
+                  Support on Ko-fi
+               </Button>
+            </div>
+          )}
 
           {/* Batch Watch Button */}
           {closedSections.length > 0 && (
