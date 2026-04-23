@@ -61,12 +61,12 @@ export const WatchDashboard: React.FC = () => {
                             </Badge>
                         )}
                         {w.status === 'notified' && (
-                            <Badge variant="default" className="bg-green-600 hover:bg-green-700 font-bold px-3 py-1 shadow-sm rounded-md">
+                            <Badge variant="default" className="border-transparent bg-green-500/20 text-green-300 hover:bg-green-500/30 font-bold px-3 py-1 rounded-md">
                                 Notified
                             </Badge>
                         )}
                         {w.status === 'error' && (
-                            <Badge variant="destructive" className="font-bold px-3 py-1 rounded-md">
+                            <Badge variant="destructive" className="border-transparent bg-red-500/20 text-red-300 hover:bg-red-500/30 font-bold px-3 py-1 rounded-md">
                                 Error
                             </Badge>
                         )}
