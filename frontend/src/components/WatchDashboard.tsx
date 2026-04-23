@@ -1,13 +1,17 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getUserWatches, cancelUserWatch, UserWatch } from '../services/api';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
-import { Loader2, Trash2 } from 'lucide-react';
+import { Loader2, Trash2, Search, Filter } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
+import { Input } from '../components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 
 export const WatchDashboard: React.FC = () => {
     const queryClient = useQueryClient();
+    const [searchQuery, setSearchQuery] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
 
     const { data: watches, isLoading, isError } = useQuery<UserWatch[]>({
         queryKey: ['userWatches'],
@@ -26,6 +30,23 @@ export const WatchDashboard: React.FC = () => {
         }
     });
 
+    const filteredWatches = useMemo(() => {
+        if (!watches) return [];
+        return watches.filter(w => {
+            const searchLower = searchQuery.toLowerCase();
+            const matchesSearch = 
+                w.course_code.toLowerCase().includes(searchLower) || 
+                w.section_display.toLowerCase().includes(searchLower);
+            
+            const matchesStatus = statusFilter === 'all' || w.status === statusFilter;
+            
+            return matchesSearch && matchesStatus;
+        });
+    }, [watches, searchQuery, statusFilter]);
+
+    const activeWatches = filteredWatches.filter(w => w.status !== 'cancelled');
+    const cancelledWatches = filteredWatches.filter(w => w.status === 'cancelled');
+
     if (isLoading) {
         return <div className="flex justify-center p-8"><Loader2 className="animate-spin text-muted-foreground" /></div>;
     }
@@ -33,9 +54,6 @@ export const WatchDashboard: React.FC = () => {
     if (isError) {
         return <div className="text-destructive p-4 text-center">Failed to load watches. Please try logging in again.</div>;
     }
-
-    const activeWatches = watches?.filter(w => w.status !== 'cancelled') || [];
-    const cancelledWatches = watches?.filter(w => w.status === 'cancelled') || [];
 
     const renderWatch = (w: UserWatch) => (
         <div key={w.id} className="group relative border border-border/40 rounded-xl p-5 mb-4 bg-muted/20 backdrop-blur-sm transition-all hover:border-primary/30 hover:bg-muted/40">
@@ -98,21 +116,66 @@ export const WatchDashboard: React.FC = () => {
     );
 
     return (
-        <div className="space-y-8">
-            <div>
-                <h3 className="text-lg font-semibold tracking-tight mb-4">Active Watches</h3>
-                {activeWatches.length === 0 ? (
-                    <p className="text-muted-foreground italic bg-muted/50 p-6 rounded-lg text-center">You don't have any active watches.</p>
-                ) : (
-                    activeWatches.map(renderWatch)
-                )}
+        <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row gap-4">
+                <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input 
+                        placeholder="Search course or section..." 
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-9 bg-background/50 backdrop-blur-sm"
+                    />
+                </div>
+                <div className="w-full sm:w-[180px]">
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                        <SelectTrigger className="bg-background/50 backdrop-blur-sm">
+                            <div className="flex items-center gap-2">
+                                <Filter className="h-4 w-4 text-muted-foreground" />
+                                <SelectValue placeholder="Filter by status" />
+                            </div>
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Statuses</SelectItem>
+                            <SelectItem value="pending">Pending</SelectItem>
+                            <SelectItem value="notified">Notified</SelectItem>
+                            <SelectItem value="error">Error</SelectItem>
+                            <SelectItem value="cancelled">Cancelled</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
             </div>
-            {cancelledWatches.length > 0 && (
-                <div>
-                    <h3 className="text-lg font-semibold tracking-tight mb-4 text-muted-foreground">Cancelled</h3>
-                    <div className="opacity-60">
-                        {cancelledWatches.map(renderWatch)}
+
+            {filteredWatches.length === 0 && !isLoading && !isError ? (
+                <div className="bg-muted/30 border border-border/50 rounded-xl p-8 text-center space-y-3">
+                    <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto mb-4">
+                        <Search className="h-6 w-6 text-muted-foreground" />
                     </div>
+                    <p className="text-muted-foreground font-medium">
+                        {watches?.length === 0 ? "You don't have any watches yet." : "No watches match your search filters."}
+                    </p>
+                    {watches && watches.length > 0 && (
+                        <Button variant="link" onClick={() => { setSearchQuery(''); setStatusFilter('all'); }}>
+                            Clear filters
+                        </Button>
+                    )}
+                </div>
+            ) : (
+                <div className="space-y-8">
+                    {activeWatches.length > 0 && (
+                        <div>
+                            <h3 className="text-lg font-semibold tracking-tight mb-4">Active Watches</h3>
+                            {activeWatches.map(renderWatch)}
+                        </div>
+                    )}
+                    {cancelledWatches.length > 0 && (
+                        <div>
+                            <h3 className="text-lg font-semibold tracking-tight mb-4 text-muted-foreground">Cancelled</h3>
+                            <div className="opacity-60">
+                                {cancelledWatches.map(renderWatch)}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
         </div>
