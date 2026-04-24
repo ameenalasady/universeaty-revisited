@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getUserWatches, cancelUserWatch, UserWatch } from '../services/api';
+import { getUserWatches, cancelUserWatch, UserWatch, addWatchRequest, getAuthStatus } from '../services/api';
 import { useTerms } from '../hooks/useCourseData';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
-import { Loader2, Trash2, Search, Filter, Heart, X, History } from 'lucide-react';
+import { Loader2, Trash2, Search, Filter, Heart, X, History, RefreshCw } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
@@ -45,6 +45,12 @@ export const WatchDashboard: React.FC = () => {
         retry: false, // Don't retry if unauthorized
     });
 
+    const { data: authData } = useQuery({
+        queryKey: ['authStatus'],
+        queryFn: getAuthStatus,
+        retry: false,
+    });
+
     const cancelMutation = useMutation({
         mutationFn: cancelUserWatch,
         onSuccess: () => {
@@ -53,6 +59,17 @@ export const WatchDashboard: React.FC = () => {
         },
         onError: () => {
             toast.error("Failed to cancel watch request");
+        }
+    });
+
+    const watchAgainMutation = useMutation({
+        mutationFn: addWatchRequest,
+        onSuccess: () => {
+            toast.success("Watch request restarted successfully");
+            queryClient.invalidateQueries({ queryKey: ['userWatches'] });
+        },
+        onError: (error: Error) => {
+            toast.error(error.message || "Failed to restart watch request");
         }
     });
 
@@ -131,6 +148,28 @@ export const WatchDashboard: React.FC = () => {
                             )}
                         </div>
 
+                        {w.status !== 'pending' && !isOldTerm(w.term_id) && (
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-10 w-10 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-full transition-colors"
+                                onClick={() => watchAgainMutation.mutate({
+                                    email: authData?.email || '',
+                                    term_id: w.term_id,
+                                    course_code: w.course_code,
+                                    section_key: w.section_key
+                                })}
+                                disabled={watchAgainMutation.isPending || !authData?.email}
+                                title="Watch Again"
+                            >
+                                {watchAgainMutation.isPending && watchAgainMutation.variables?.section_key === w.section_key && watchAgainMutation.variables?.course_code === w.course_code ? (
+                                    <Loader2 className="h-5 w-5 animate-spin" />
+                                ) : (
+                                    <RefreshCw className="h-5 w-5" />
+                                )}
+                            </Button>
+                        )}
+
                         {w.status !== 'cancelled' && (
                             <Button 
                                 variant="ghost" 
@@ -138,6 +177,7 @@ export const WatchDashboard: React.FC = () => {
                                 className="h-10 w-10 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-full transition-colors"
                                 onClick={() => cancelMutation.mutate(w.id)}
                                 disabled={cancelMutation.isPending}
+                                title="Cancel Watch"
                             >
                                 {cancelMutation.isPending && cancelMutation.variables === w.id ? (
                                     <Loader2 className="h-5 w-5 animate-spin" />
