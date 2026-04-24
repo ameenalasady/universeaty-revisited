@@ -1155,7 +1155,12 @@ def auth_request():
         return jsonify({"error": "Invalid request format."}), 400
 
     email = request.json.get('email')
-    if not email or not isinstance(email, str) or len(email) > MAX_EMAIL_LENGTH or not is_valid_email(email):
+    if not email or not isinstance(email, str):
+        log.warning(f"Auth request failed: Missing or non-string email.")
+        return jsonify({"error": "Invalid email address."}), 400
+    # Sanitize: strip whitespace and normalize case before validation
+    email = email.strip().lower()
+    if len(email) > MAX_EMAIL_LENGTH or not is_valid_email(email):
         log.warning(f"Auth request failed: Invalid email format or length: {email}")
         return jsonify({"error": "Invalid email address."}), 400
 
@@ -1186,7 +1191,22 @@ def auth_verify():
     email = request.json.get('email')
     token = request.json.get('token')
 
-    if not email or not token or not isinstance(email, str) or len(email) > MAX_EMAIL_LENGTH:
+    if not email or not token or not isinstance(email, str) or not isinstance(token, str):
+        return jsonify({"error": "Invalid email or token."}), 400
+
+    # Sanitize inputs: strip whitespace and normalize before verification
+    email = email.strip().lower()
+    # Normalize token: strip whitespace, uppercase, remove accidental internal spaces
+    token = token.strip().upper().replace(' ', '')
+    # If user omitted the dash (e.g. pasted 'ABCXYZ' instead of 'ABC-XYZ'), reformat to stored XXX-XXX format
+    if len(token) == 6 and re.match(r'^[A-Z0-9]{6}$', token):
+        token = f"{token[:3]}-{token[3:]}"
+    # Reject tokens that don't match the expected XXX-XXX format
+    if not re.match(r'^[A-Z0-9]{3}-[A-Z0-9]{3}$', token):
+        log.warning(f"Auth verify failed: Token format invalid after normalization.")
+        return jsonify({"error": "Invalid or expired token."}), 401
+
+    if len(email) > MAX_EMAIL_LENGTH or not email:
         return jsonify({"error": "Invalid email or token."}), 400
 
     if active_client.storage.verify_auth_token(email, token):

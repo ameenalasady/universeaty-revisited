@@ -23,8 +23,9 @@ export const ManageWatches: React.FC = () => {
         const urlEmail = urlParams.get('email');
         
         if (urlToken) {
-            setToken(urlToken);
-            if (urlEmail) setEmail(urlEmail);
+            // Sanitize magic link token: trim whitespace and normalize to uppercase
+            setToken(sanitizeToken(urlToken));
+            if (urlEmail) setEmail(urlEmail.trim().toLowerCase());
             setStep('code');
             setCheckingAuth(false);
             // Clean up URL
@@ -78,19 +79,44 @@ export const ManageWatches: React.FC = () => {
         }
     });
 
+    /** Sanitizes a raw token string: trims whitespace, uppercases, and formats as XXX-XXX */
+    const sanitizeToken = (raw: string): string => {
+        // Strip all whitespace, uppercase
+        const clean = raw.replace(/\s/g, '').toUpperCase();
+        // Auto-insert dash if not present and length >= 3
+        if (clean.length > 3 && !clean.includes('-')) {
+            return `${clean.slice(0, 3)}-${clean.slice(3, 6)}`;
+        }
+        // Remove any extra characters beyond the 7-char XXX-XXX format
+        return clean.slice(0, 7);
+    };
+
+    const handleTokenChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const sanitized = sanitizeToken(e.target.value);
+        setToken(sanitized);
+    };
+
     const handleRequestCode = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!email) return;
-        requestMutation.mutate({ email });
+        const trimmedEmail = email.trim().toLowerCase();
+        if (!trimmedEmail) return;
+        setEmail(trimmedEmail);
+        requestMutation.mutate({ email: trimmedEmail });
     };
 
     const handleVerifyCode = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!email) {
+        const trimmedEmail = email.trim().toLowerCase();
+        const trimmedToken = token.trim().toUpperCase();
+        if (!trimmedEmail) {
             toast.error("Please enter your email to verify.");
             return;
         }
-        verifyMutation.mutate({ email, token });
+        if (!trimmedToken || trimmedToken.length < 7) {
+            toast.error("Please enter the full 6-character access code.");
+            return;
+        }
+        verifyMutation.mutate({ email: trimmedEmail, token: trimmedToken });
     };
 
     if (checkingAuth) {
@@ -144,7 +170,7 @@ export const ManageWatches: React.FC = () => {
                                     type="email" 
                                     placeholder="your@email.com" 
                                     value={email} 
-                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} 
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value.trim())} 
                                     required 
                                     className="h-12 text-base rounded-lg border-border/50 focus:border-primary/50 focus:ring-primary/20 transition-all bg-muted/20"
                                 />
@@ -175,11 +201,20 @@ export const ManageWatches: React.FC = () => {
                                     type="text" 
                                     placeholder="XXX-XXX" 
                                     value={token} 
-                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setToken(e.target.value)} 
+                                    onChange={handleTokenChange}
+                                    onPaste={(e) => {
+                                        // Handle paste events explicitly to sanitize whitespace
+                                        e.preventDefault();
+                                        const pasted = e.clipboardData.getData('text');
+                                        setToken(sanitizeToken(pasted));
+                                    }}
                                     required 
                                     className="uppercase text-center tracking-[0.2em] font-mono text-2xl h-14 rounded-lg border-border/50 focus:border-primary/50 focus:ring-primary/20 transition-all bg-muted/20"
                                     maxLength={7}
+                                    autoComplete="one-time-code"
+                                    inputMode="text"
                                 />
+                                <p className="text-xs text-muted-foreground text-center mt-1">Paste your code — spaces are removed automatically</p>
                             </div>
                             <Button type="submit" className="w-full h-12 rounded-lg font-bold" disabled={verifyMutation.isPending}>
                                 {verifyMutation.isPending ? <Loader2 className="animate-spin mr-2 h-5 w-5" /> : null}
