@@ -79,6 +79,13 @@ export const ManageWatches: React.FC = () => {
         }
     });
 
+    // Auto-submit when a full 7-character token is entered
+    useEffect(() => {
+        if (token.length === 7 && step === 'code' && email && !verifyMutation.isPending) {
+            verifyMutation.mutate({ email: email.trim().toLowerCase(), token });
+        }
+    }, [token, step, email, verifyMutation]);
+
     /** Sanitizes a raw token string: trims whitespace, uppercases, and formats as XXX-XXX */
     const sanitizeToken = (raw: string): string => {
         // Strip all whitespace, uppercase
@@ -210,7 +217,6 @@ export const ManageWatches: React.FC = () => {
                                     }}
                                     required 
                                     className="uppercase text-center tracking-[0.2em] font-mono text-2xl h-14 rounded-lg border-border/50 focus:border-primary/50 focus:ring-primary/20 transition-all bg-muted/20"
-                                    maxLength={7}
                                     autoComplete="one-time-code"
                                     inputMode="text"
                                 />
