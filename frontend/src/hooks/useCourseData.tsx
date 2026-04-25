@@ -73,10 +73,10 @@ export const useAddBatchWatchRequest = () => {
 
 // --- Stats & History Hooks ---
 
-export const useCourseStats = (termId: string | null | undefined, courseCode: string | null | undefined) => {
+export const useCourseStats = (termId: string | null | undefined, courseCode: string | null | undefined, hours: number = 72) => {
   return useQuery<CourseStatsResponse, ApiError | Error>({
-    queryKey: ['courseStats', termId, courseCode],
-    queryFn: () => getCourseStats(termId!, courseCode!),
+    queryKey: ['courseStats', termId, courseCode, hours],
+    queryFn: () => getCourseStats(termId!, courseCode!, hours),
     enabled: !!termId && !!courseCode,
     staleTime: 1000 * 60 * 2, // Cache for 2 minutes
     refetchOnWindowFocus: false, // Avoid unnecessary refetches
@@ -87,11 +87,12 @@ export const useSectionHistory = (
   termId: string | null | undefined,
   courseCode: string | null | undefined,
   sectionKey: string | null | undefined,
+  hours: number = 72,
   enabled: boolean = true
 ) => {
   return useQuery<SectionHistoryResponse, ApiError | Error>({
-    queryKey: ['sectionHistory', termId, courseCode, sectionKey],
-    queryFn: () => getSectionHistory(termId!, courseCode!, sectionKey!),
+    queryKey: ['sectionHistory', termId, courseCode, sectionKey, hours],
+    queryFn: () => getSectionHistory(termId!, courseCode!, sectionKey!, hours),
     enabled: !!termId && !!courseCode && !!sectionKey && enabled,
     staleTime: 1000 * 60 * 1, // Cache for 1 minute
     refetchOnWindowFocus: false,

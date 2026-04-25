@@ -22,6 +22,8 @@ interface SectionHistoryChartProps {
   currentOpenSeats?: number;
   /** Current live total seat count */
   currentTotalSeats?: number;
+  /** How many hours of history to display. Defaults to 72 (3 days). */
+  hours?: number;
 }
 
 /**
@@ -38,6 +40,18 @@ function formatRelativeTimeMs(epochMs: number): string {
   if (diffMins < 60) return `${diffMins}m ago`;
   if (diffHours < 24) return `${diffHours}h ago`;
   return `${diffDays}d ago`;
+}
+
+/**
+ * Formats epoch ms for X-axis ticks.
+ * For windows <= 2 days: use relative time ("3h ago").
+ * For longer windows: use short date ("Apr 15").
+ */
+function formatXAxisTick(epochMs: number, hours: number): string {
+  if (hours <= 48) {
+    return formatRelativeTimeMs(epochMs);
+  }
+  return new Date(epochMs).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 /**
@@ -93,8 +107,9 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
   sectionName,
   currentOpenSeats,
   currentTotalSeats,
+  hours = 72,
 }) => {
-  const { data, isLoading, isError } = useSectionHistory(termId, courseCode, sectionKey);
+  const { data, isLoading, isError } = useSectionHistory(termId, courseCode, sectionKey, hours);
 
   const chartData = useMemo<ChartDataPoint[]>(() => {
     if (!data?.history || data.history.length === 0) return [];
@@ -226,7 +241,7 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
                 tick={{ fontSize: 10, fill: 'hsl(0, 0%, 60%)' }}
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={(ms: number) => formatRelativeTimeMs(ms)}
+                tickFormatter={(ms: number) => formatXAxisTick(ms, hours)}
                 minTickGap={48}
                 tickCount={5}
               />

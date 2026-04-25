@@ -529,6 +529,8 @@ class RequestStorage:
         """
         Returns seat snapshots for a specific section within a time window.
         Limits to ~500 data points by downsampling if needed.
+        Also prepends the last state immediately before the time window so the chart shows accurate
+        continuous state even if no new snapshots were recorded within the window.
 
         Args:
             term_id: Term ID.
@@ -547,12 +549,27 @@ class RequestStorage:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
 
-                # First count total rows in the window
+                window_start_modifier = f"-{hours} hours"
+
+                # 1. Fetch the most recent snapshot BEFORE the window (to show continuous state if unchanged)
+                cursor.execute(
+                    f"""SELECT open_seats, total_seats, datetime('now', ?) as recorded_at
+                        FROM {self.SEAT_SNAPSHOTS_TABLE}
+                        WHERE term_id = ? AND course_code = ? AND section_key = ?
+                        AND recorded_at < datetime('now', ?)
+                        ORDER BY recorded_at DESC LIMIT 1""",
+                    (window_start_modifier, term_id, course_code, section_key, window_start_modifier)
+                )
+                prior_row = cursor.fetchone()
+                if prior_row:
+                    results.append(dict(prior_row))
+
+                # 2. First count total rows in the window
                 cursor.execute(
                     f"""SELECT COUNT(*) as cnt FROM {self.SEAT_SNAPSHOTS_TABLE}
                         WHERE term_id = ? AND course_code = ? AND section_key = ?
                         AND recorded_at >= datetime('now', ?)""",
-                    (term_id, course_code, section_key, f"-{hours} hours")
+                    (term_id, course_code, section_key, window_start_modifier)
                 )
                 count_row = cursor.fetchone()
                 total_count = count_row['cnt'] if count_row else 0
@@ -574,21 +591,23 @@ class RequestStorage:
                                 AND recorded_at >= datetime('now', ?)
                             ))
                             ORDER BY recorded_at ASC""",
-                        (term_id, course_code, section_key, f"-{hours} hours",
+                        (term_id, course_code, section_key, window_start_modifier,
                          step,
-                         term_id, course_code, section_key, f"-{hours} hours")
+                         term_id, course_code, section_key, window_start_modifier)
                     )
-                else:
+                elif total_count > 0:
                     cursor.execute(
                         f"""SELECT open_seats, total_seats, recorded_at
                             FROM {self.SEAT_SNAPSHOTS_TABLE}
                             WHERE term_id = ? AND course_code = ? AND section_key = ?
                             AND recorded_at >= datetime('now', ?)
                             ORDER BY recorded_at ASC""",
-                        (term_id, course_code, section_key, f"-{hours} hours")
+                        (term_id, course_code, section_key, window_start_modifier)
                     )
 
-                results = [dict(row) for row in cursor.fetchall()]
+                if total_count > 0:
+                    results.extend([dict(row) for row in cursor.fetchall()])
+
                 log.debug(f"Storage: Retrieved {len(results)} history points for {course_code}/{section_key} (last {hours}h).")
             except sqlite3.Error as e:
                 log.error(f"Storage: Error fetching section history: {e}", exc_info=True)

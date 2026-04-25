@@ -7,7 +7,8 @@ import SectionBlock from './SectionBlock';
 import CourseStatsPanel from './CourseStatsPanel';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Eye, Info, Heart, X } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Eye, Info, Heart, X, History } from 'lucide-react';
 import { CourseDetailsSection, ApiError } from '@/services/api';
 import { toast } from 'sonner';
 import CourseDetailsEmptyState from './CourseDetailsEmptyState';
@@ -28,6 +29,7 @@ export const CourseDetailsDisplay: React.FC = () => {
   const [isWatchDialogOpen, setIsWatchDialogOpen] = useState(false);
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [showDonationBanner, setShowDonationBanner] = useState(false);
+  const [historyHours, setHistoryHours] = useState(72);
 
   // --- Donation Banner Logic ---
   const triggerDonationBanner = useCallback(() => {
@@ -197,7 +199,26 @@ export const CourseDetailsDisplay: React.FC = () => {
         </CardHeader>
         <CardContent className="space-y-8 px-4 sm:px-6 pb-8">
           {/* Course Stats Panel */}
-          <CourseStatsPanel termId={selectedTerm} courseCode={selectedCourse} />
+          <CourseStatsPanel termId={selectedTerm} courseCode={selectedCourse} hours={historyHours} />
+
+          {/* History Range Selector */}
+          <div className="flex items-center justify-end gap-2 -mt-4">
+            <History className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">History range:</span>
+            <Select
+              value={String(historyHours)}
+              onValueChange={(v) => setHistoryHours(Number(v))}
+            >
+              <SelectTrigger className="h-7 w-[110px] text-xs border-border/50 bg-muted/20 focus:ring-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="72">Last 3 days</SelectItem>
+                <SelectItem value="168">Last 7 days</SelectItem>
+                <SelectItem value="336">Last 2 weeks</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
           {/* Donation Banner */}
           {showDonationBanner && (
@@ -266,6 +287,7 @@ export const CourseDetailsDisplay: React.FC = () => {
                 isLastBlock={index === courseDetailEntries.length - 1}
                 termId={selectedTerm ?? undefined}
                 courseCode={selectedCourse ?? undefined}
+                hours={historyHours}
               />
             ))}
           </div>

@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 interface CourseStatsPanelProps {
   termId: string | null | undefined;
   courseCode: string | null | undefined;
+  hours?: number;
 }
 
 function getDemandLevel(activeRequests: number): {
@@ -44,8 +45,8 @@ function getDemandLevel(activeRequests: number): {
   };
 }
 
-const CourseStatsPanel: React.FC<CourseStatsPanelProps> = ({ termId, courseCode }) => {
-  const { data: statsData, isLoading } = useCourseStats(termId, courseCode);
+const CourseStatsPanel: React.FC<CourseStatsPanelProps> = ({ termId, courseCode, hours = 72 }) => {
+  const { data: statsData, isLoading } = useCourseStats(termId, courseCode, hours);
 
   const demand = useMemo(() => {
     if (!statsData) return getDemandLevel(0);

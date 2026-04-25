@@ -12,9 +12,10 @@ interface SectionBlockProps {
   sections: CourseDetailsSection[];
   onWatchClick: (section: CourseDetailsSection) => void;
   isWatchMutationPending: boolean;
-  isLastBlock: boolean; // To control the separator
+  isLastBlock?: boolean;
   termId?: string;
   courseCode?: string;
+  hours?: number;
 }
 
 const SectionBlock: React.FC<SectionBlockProps> = ({
@@ -25,6 +26,7 @@ const SectionBlock: React.FC<SectionBlockProps> = ({
   isLastBlock,
   termId,
   courseCode,
+  hours,
 }) => {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
 
@@ -89,6 +91,7 @@ const SectionBlock: React.FC<SectionBlockProps> = ({
                           sectionName={`${blockType} ${section.section}`}
                           currentOpenSeats={section.open_seats}
                           currentTotalSeats={section.total_seats}
+                          hours={hours}
                         />
                       </TableCell>
                     </TableRow>
@@ -107,20 +110,19 @@ const SectionBlock: React.FC<SectionBlockProps> = ({
             No {blockType} sections found.
           </div>
         ) : (
-          sections.map((section) => (
-            <SectionCard
-              key={section.key}
-              section={section}
-              onWatchClick={onWatchClick}
-              isWatchDisabled={section.open_seats > 0 || isWatchMutationPending}
-              isWatchMutationPending={isWatchMutationPending}
-              onToggleHistory={termId && courseCode ? handleToggleHistory : undefined}
-              isHistoryExpanded={expandedSections.has(section.key)}
-              termId={termId}
-              courseCode={courseCode}
-              blockType={blockType}
-            />
-          ))
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-5 pb-8 relative">
+            {sections.map((section) => (
+              <SectionCard
+                key={section.key}
+                section={section}
+                onWatchClick={onWatchClick}
+                isWatchMutationPending={isWatchMutationPending}
+                termId={termId}
+                courseCode={courseCode}
+                hours={hours}
+              />
+            ))}
+          </div>
         )}
       </div>
 

@@ -1055,7 +1055,7 @@ def get_course_stats(term_id, course_code):
 
     # Validate hours parameter
     hours = request.args.get('hours', 72, type=int)
-    hours = max(1, min(hours, 168))  # Clamp to 1-168
+    hours = max(1, min(hours, 336))  # Clamp to 1-336 (max 2 weeks)
 
     try:
         # Validate term and course existence
@@ -1117,7 +1117,7 @@ def get_section_history(term_id, course_code, section_key):
     section_key = section_key.strip()
 
     hours = request.args.get('hours', 72, type=int)
-    hours = max(1, min(hours, 168))
+    hours = max(1, min(hours, 336))
 
     try:
         history = active_client.storage.get_section_history(term_id, normalized_course_code, section_key, hours)
