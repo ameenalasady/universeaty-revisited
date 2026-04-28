@@ -58,7 +58,7 @@ AUTH_TOKEN_EXPIRY_MINUTES = int(os.environ.get('AUTH_TOKEN_EXPIRY_MINUTES', 15))
 JWT_EXPIRY_HOURS = int(os.environ.get('JWT_EXPIRY_HOURS', 24))
 
 # Client Timing Defaults
-DEFAULT_CHECK_INTERVAL_SECONDS = int(os.environ.get('DEFAULT_CHECK_INTERVAL_SECONDS', 60))     # Default 1 minute
+DEFAULT_CHECK_INTERVAL_SECONDS = int(os.environ.get('DEFAULT_CHECK_INTERVAL_SECONDS', 15))     # Default 15 seconds
 DEFAULT_UPDATE_INTERVAL_SECONDS = int(os.environ.get('DEFAULT_UPDATE_INTERVAL_SECONDS', 3600)) # Default 1 hour
 FETCH_DETAILS_TIMEOUT_SECONDS = int(os.environ.get('FETCH_DETAILS_TIMEOUT_SECONDS', 10)) # Timeout for fetching batch course details
 
