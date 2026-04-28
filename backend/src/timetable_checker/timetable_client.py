@@ -744,7 +744,7 @@ class McMasterTimetableClient:
         """
         # Intervals are passed from __init__, which uses config defaults or arguments
         update_interval = max(3600, update_interval)  # Minimum 1 hour
-        check_interval = max(60, check_interval)  # Minimum 1 minute
+        check_interval = max(15, check_interval)  # Minimum 15 seconds
 
         # Thread for updating term/course lists
         self.update_thread = threading.Thread(
