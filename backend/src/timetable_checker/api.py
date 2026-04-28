@@ -59,6 +59,7 @@ Imports the centralized logging configuration from logging_config.py.
 This sets up file and console handlers for the entire application.
 Must be imported before the first logging call (and after config).
 """
+from . import logging_config  # noqa: E402, F401
 
 # --- Application-Specific Imports ---
 """
