@@ -1,13 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Mail, Eye, XCircle } from 'lucide-react';
-import { CourseDetailsSection } from '@/services/api';
-import { toast } from 'sonner';
+import { Loader2, Mail, Eye, XCircle } from "lucide-react";
+import { CourseDetailsSection } from "@/services/api";
+import { toast } from "sonner";
 
 interface WatchSectionDialogProps {
   isOpen: boolean;
@@ -32,31 +38,32 @@ export const WatchSectionDialog: React.FC<WatchSectionDialogProps> = ({
   onSubmit,
   isPending,
 }) => {
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState("");
   const [isValidEmail, setIsValidEmail] = useState(false);
 
   // This effect runs when the dialog opens to pre-populate the email from localStorage
   useEffect(() => {
     if (isOpen) {
-      const savedEmail = localStorage.getItem('universeaty_userEmail') || '';
+      const savedEmail = localStorage.getItem("universeaty_userEmail") || "";
       setEmail(savedEmail);
     }
   }, [isOpen]);
 
   // This effect validates the email whenever it changes, either from pre-population or user input.
   useEffect(() => {
-    setIsValidEmail(email.trim() !== '' && /\S+@\S+\.\S+/.test(email));
+    setIsValidEmail(email.trim() !== "" && /\S+@\S+\.\S+/.test(email));
   }, [email]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!isValidEmail || isPending) {
-        if (!isValidEmail) toast.error("Invalid Email", { description: "Please enter a valid email address." });
-        return;
+      if (!isValidEmail)
+        toast.error("Invalid Email", { description: "Please enter a valid email address." });
+      return;
     }
     // For single requests, ensure section is valid. For batch, ensure sections array has items.
     if ((!isBatch && !section) || (isBatch && sections.length === 0)) {
-        return;
+      return;
     }
     onSubmit(email);
   };
@@ -72,13 +79,22 @@ export const WatchSectionDialog: React.FC<WatchSectionDialogProps> = ({
             <DialogTitle>Watch {isBatch ? "All Closed Sections" : "Course Section"}</DialogTitle>
             <DialogDescription>
               {isBatch ? (
-                <>Get notified via email when a seat opens in <span className="font-semibold">ANY of the {sections.length} closed sections</span> in <span className="font-semibold">{courseCode}</span> for the <span className="font-semibold">{termName}</span> term.</>
+                <>
+                  Get notified via email when a seat opens in{" "}
+                  <span className="font-semibold">
+                    ANY of the {sections.length} closed sections
+                  </span>{" "}
+                  in <span className="font-semibold">{courseCode}</span> for the{" "}
+                  <span className="font-semibold">{termName}</span> term.
+                </>
               ) : (
-                <>Get notified via email when a seat opens in{" "}
-                <span className="font-semibold">
-                  {courseCode} {section?.block_type} {section?.section} ({section?.key})
-                </span>{" "}
-                for the <span className="font-semibold">{termName}</span> term.</>
+                <>
+                  Get notified via email when a seat opens in{" "}
+                  <span className="font-semibold">
+                    {courseCode} {section?.block_type} {section?.section} ({section?.key})
+                  </span>{" "}
+                  for the <span className="font-semibold">{termName}</span> term.
+                </>
               )}
             </DialogDescription>
           </DialogHeader>

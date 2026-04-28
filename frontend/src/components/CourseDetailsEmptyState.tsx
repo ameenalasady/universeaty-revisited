@@ -1,5 +1,5 @@
-import { Search } from 'lucide-react';
-import React from 'react';
+import { Search } from "lucide-react";
+import React from "react";
 
 const CourseDetailsEmptyState: React.FC = () => {
   return (
@@ -9,7 +9,8 @@ const CourseDetailsEmptyState: React.FC = () => {
       </div>
       <h3 className="mt-4 text-lg font-semibold">View Course Availability</h3>
       <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto">
-        Once you select a term and a course from the options above, the available sections will be displayed here.
+        Once you select a term and a course from the options above, the available sections will be
+        displayed here.
       </p>
     </div>
   );

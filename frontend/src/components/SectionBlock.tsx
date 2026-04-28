@@ -1,11 +1,18 @@
-import React, { useState, useCallback } from 'react';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import React, { useState, useCallback } from "react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { CourseDetailsSection } from '@/services/api';
+import { CourseDetailsSection } from "@/services/api";
 import { Badge } from "@/components/ui/badge";
-import SectionRow from './SectionRow';
-import SectionCard from './SectionCard';
-import SectionHistoryChart from './SectionHistoryChart';
+import SectionRow from "./SectionRow";
+import SectionCard from "./SectionCard";
+import SectionHistoryChart from "./SectionHistoryChart";
 
 interface SectionBlockProps {
   blockType: string;
@@ -31,7 +38,7 @@ const SectionBlock: React.FC<SectionBlockProps> = ({
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
 
   const handleToggleHistory = useCallback((sectionKey: string) => {
-    setExpandedSections(prev => {
+    setExpandedSections((prev) => {
       const next = new Set(prev);
       if (next.has(sectionKey)) {
         next.delete(sectionKey);
@@ -48,7 +55,10 @@ const SectionBlock: React.FC<SectionBlockProps> = ({
         <h3 className="font-semibold text-lg tracking-tight text-foreground/90">
           {blockType} Sections
         </h3>
-        <Badge variant="outline" className="md:hidden text-[10px] uppercase tracking-widest opacity-60">
+        <Badge
+          variant="outline"
+          className="md:hidden text-[10px] uppercase tracking-widest opacity-60"
+        >
           {sections.length} sections
         </Badge>
       </div>

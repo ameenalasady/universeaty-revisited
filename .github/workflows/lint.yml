@@ -1,0 +1,66 @@
+# .github/workflows/lint.yml
+#
+# CI lint & format check for both frontend (ESLint + Prettier) and
+# backend (Ruff). Runs on every push and pull-request to master.
+# The workflow intentionally only CHECKS — it never auto-fixes — so
+# CI results are deterministic.
+
+name: Lint & Format Check
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  # ── Backend: Ruff ──────────────────────────────────────────────────────────
+  lint-backend:
+    name: "Backend · Ruff (lint + format)"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Ruff
+        run: pip install ruff
+
+      - name: Ruff — lint check
+        run: ruff check backend/
+
+      - name: Ruff — format check
+        run: ruff format --check backend/
+
+  # ── Frontend: ESLint + Prettier ────────────────────────────────────────────
+  lint-frontend:
+    name: "Frontend · ESLint + Prettier"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: ESLint — lint check
+        working-directory: ./frontend
+        run: npm run lint
+
+      - name: Prettier — format check
+        working-directory: ./frontend
+        run: npm run format:check

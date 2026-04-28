@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo } from "react";
 import {
   AreaChart,
   Area,
@@ -7,11 +7,11 @@ import {
   CartesianGrid,
   Tooltip as RechartsTooltip,
   ResponsiveContainer,
-} from 'recharts';
-import { useSectionHistory } from '@/hooks/useCourseData';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Clock, TrendingUp, ArrowUp } from 'lucide-react';
+} from "recharts";
+import { useSectionHistory } from "@/hooks/useCourseData";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Clock, TrendingUp, ArrowUp } from "lucide-react";
 
 interface SectionHistoryChartProps {
   termId: string;
@@ -36,7 +36,7 @@ function formatRelativeTimeMs(epochMs: number): string {
   const diffHours = Math.floor(diffMins / 60);
   const diffDays = Math.floor(diffHours / 24);
 
-  if (diffMins < 1) return 'now';
+  if (diffMins < 1) return "now";
   if (diffMins < 60) return `${diffMins}m ago`;
   if (diffHours < 24) return `${diffHours}h ago`;
   return `${diffDays}d ago`;
@@ -51,14 +51,14 @@ function formatXAxisTick(epochMs: number, hours: number): string {
   if (hours <= 48) {
     return formatRelativeTimeMs(epochMs);
   }
-  return new Date(epochMs).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return new Date(epochMs).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 /**
  * Formats epoch ms for the stats row summary (relative).
  */
 function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr + 'Z');
+  const date = new Date(dateStr + "Z");
   return formatRelativeTimeMs(date.getTime());
 }
 
@@ -67,29 +67,41 @@ function formatRelativeTime(dateStr: string): string {
  */
 function formatTooltipTimeMs(epochMs: number): string {
   return new Date(epochMs).toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
 interface ChartDataPoint {
   /** Epoch milliseconds — used as numeric X-axis key for even spacing */
   timestamp: number;
-  openSeats: number;
-  totalSeats: number;
+  openSeats: number | null;
+  totalSeats: number | null;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const CustomTooltip = ({ active, payload }: any) => {
+interface TooltipPayloadItem {
+  payload: ChartDataPoint;
+}
+
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: TooltipPayloadItem[];
+}
+
+const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
   if (active && payload && payload.length) {
-    const data = payload[0].payload as ChartDataPoint;
+    const data = payload[0].payload;
     return (
       <div className="rounded-lg border border-border/60 bg-popover/95 backdrop-blur-sm px-3 py-2 shadow-xl">
         <p className="text-xs text-muted-foreground mb-1">{formatTooltipTimeMs(data.timestamp)}</p>
         <p className="text-sm font-semibold">
-          <span className={data.openSeats > 0 ? 'text-green-400' : 'text-red-400'}>
+          <span
+            className={
+              data.openSeats != null && data.openSeats > 0 ? "text-green-400" : "text-red-400"
+            }
+          >
             {data.openSeats}
           </span>
           <span className="text-muted-foreground font-normal"> / {data.totalSeats} seats open</span>
@@ -118,17 +130,17 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
     let lastMs = -1;
 
     data.history.forEach((snapshot) => {
-      const ms = new Date(snapshot.recorded_at + 'Z').getTime();
-      
+      const ms = new Date(snapshot.recorded_at + "Z").getTime();
+
       // If gap is greater than 2 hours (7200000 ms), insert a null point to break the line
       if (lastMs !== -1 && ms - lastMs > 7200000) {
         points.push({
           timestamp: lastMs + 1000, // Slightly after the last point
-          openSeats: null as any,
-          totalSeats: null as any,
+          openSeats: null,
+          totalSeats: null,
         });
       }
-      
+
       points.push({
         timestamp: ms,
         openSeats: snapshot.open_seats,
@@ -141,18 +153,20 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
     // extends to the current moment and correctly reflects the current state.
     const nowMs = Date.now();
     const lastPoint = points[points.length - 1];
-    
+
     // Gap check for the "now" point as well
     if (lastPoint && lastPoint.openSeats !== null && nowMs - lastPoint.timestamp > 7200000) {
-        points.push({
-          timestamp: lastPoint.timestamp + 1000,
-          openSeats: null as any,
-          totalSeats: null as any,
-        });
+      points.push({
+        timestamp: lastPoint.timestamp + 1000,
+        openSeats: null,
+        totalSeats: null,
+      });
     }
 
-    const liveOpenSeats = currentOpenSeats ?? (lastPoint?.openSeats !== null ? lastPoint?.openSeats : 0) ?? 0;
-    const liveTotalSeats = currentTotalSeats ?? (lastPoint?.totalSeats !== null ? lastPoint?.totalSeats : 0) ?? 0;
+    const liveOpenSeats =
+      currentOpenSeats ?? (lastPoint?.openSeats !== null ? lastPoint?.openSeats : 0) ?? 0;
+    const liveTotalSeats =
+      currentTotalSeats ?? (lastPoint?.totalSeats !== null ? lastPoint?.totalSeats : 0) ?? 0;
     // Only append if the last snapshot is more than 30 seconds old
     if (!lastPoint || nowMs - lastPoint.timestamp > 30_000) {
       points.push({ timestamp: nowMs, openSeats: liveOpenSeats, totalSeats: liveTotalSeats });
@@ -204,9 +218,8 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
             <div className="flex items-center gap-1.5 text-muted-foreground">
               <TrendingUp className="h-3.5 w-3.5" />
               <span>
-                Opened{' '}
-                <span className="font-semibold text-foreground">{stats.times_opened}</span>{' '}
-                time{stats.times_opened !== 1 ? 's' : ''}
+                Opened <span className="font-semibold text-foreground">{stats.times_opened}</span>{" "}
+                time{stats.times_opened !== 1 ? "s" : ""}
               </span>
             </div>
           )}
@@ -214,33 +227,49 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
             <div className="flex items-center gap-1.5 text-muted-foreground">
               <ArrowUp className="h-3.5 w-3.5" />
               <span>
-                Peak:{' '}
-                <span className="font-semibold text-foreground">{stats.max_open_seats}</span>{' '}
-                seat{stats.max_open_seats !== 1 ? 's' : ''}
+                Peak: <span className="font-semibold text-foreground">{stats.max_open_seats}</span>{" "}
+                seat{stats.max_open_seats !== 1 ? "s" : ""}
               </span>
             </div>
           )}
           {stats.last_opened_at && (
             <div className="flex items-center gap-1.5 text-muted-foreground">
               <Clock className="h-3.5 w-3.5" />
-              <span>Last opened: <span className="font-semibold text-foreground">{formatRelativeTime(stats.last_opened_at)}</span></span>
+              <span>
+                Last opened:{" "}
+                <span className="font-semibold text-foreground">
+                  {formatRelativeTime(stats.last_opened_at)}
+                </span>
+              </span>
             </div>
           )}
           {isAlwaysOpen && (
-            <Badge variant="outline" className="text-xs bg-green-500/10 text-green-400 border-green-500/20 rounded-md">
+            <Badge
+              variant="outline"
+              className="text-xs bg-green-500/10 text-green-400 border-green-500/20 rounded-md"
+            >
               Consistently Open
             </Badge>
           )}
           {isAlwaysClosed && (
-            <Badge variant="outline" className="text-xs bg-red-500/10 text-red-400 border-red-500/20 rounded-md">
+            <Badge
+              variant="outline"
+              className="text-xs bg-red-500/10 text-red-400 border-red-500/20 rounded-md"
+            >
               No openings recorded
             </Badge>
           )}
-          {!isAlwaysOpen && !isAlwaysClosed && stats.times_opened === 0 && stats.total_snapshots > 0 && (
-            <Badge variant="outline" className="text-[10px] sm:text-xs bg-muted/10 text-muted-foreground border-muted/20 rounded-md">
-              No re-openings recorded
-            </Badge>
-          )}
+          {!isAlwaysOpen &&
+            !isAlwaysClosed &&
+            stats.times_opened === 0 &&
+            stats.total_snapshots > 0 && (
+              <Badge
+                variant="outline"
+                className="text-[10px] sm:text-xs bg-muted/10 text-muted-foreground border-muted/20 rounded-md"
+              >
+                No re-openings recorded
+              </Badge>
+            )}
         </div>
       )}
 
@@ -264,8 +293,8 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
                 dataKey="timestamp"
                 type="number"
                 scale="time"
-                domain={['dataMin', 'dataMax']}
-                tick={{ fontSize: 10, fill: 'hsl(0, 0%, 60%)' }}
+                domain={["dataMin", "dataMax"]}
+                tick={{ fontSize: 10, fill: "hsl(0, 0%, 60%)" }}
                 tickLine={false}
                 axisLine={false}
                 tickFormatter={(ms: number) => formatXAxisTick(ms, hours)}
@@ -274,7 +303,7 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
               />
               <YAxis
                 domain={[0, maxSeats]}
-                tick={{ fontSize: 10, fill: 'hsl(0, 0%, 60%)' }}
+                tick={{ fontSize: 10, fill: "hsl(0, 0%, 60%)" }}
                 tickLine={false}
                 axisLine={false}
                 allowDecimals={false}
@@ -283,7 +312,7 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
               />
               <RechartsTooltip
                 content={<CustomTooltip />}
-                cursor={{ stroke: 'hsl(0, 0%, 40%)', strokeDasharray: '3 3' }}
+                cursor={{ stroke: "hsl(0, 0%, 40%)", strokeDasharray: "3 3" }}
               />
               <Area
                 type="stepAfter"
@@ -300,7 +329,8 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
         </div>
       ) : (
         <div className="h-[80px] flex items-center justify-center text-xs text-muted-foreground border border-dashed border-muted/30 rounded-md">
-          No seat history data available yet. History is recorded when this section has active watch requests.
+          No seat history data available yet. History is recorded when this section has active watch
+          requests.
         </div>
       )}
     </div>

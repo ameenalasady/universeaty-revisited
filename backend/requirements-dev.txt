@@ -1,0 +1,5 @@
+# Development-only dependencies (not needed in production)
+# Install with: pip install -r requirements-dev.txt
+
+# Ruff: fast Python linter + formatter (replaces flake8, isort, black)
+ruff>=0.11.0

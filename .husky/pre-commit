@@ -1,0 +1,40 @@
+echo "🔍 Running pre-commit checks..."
+
+# ── Frontend: ESLint + Prettier via lint-staged ──────────────────────────────
+STAGED_FRONTEND=$(git diff --cached --name-only | grep '^frontend/')
+if [ -n "$STAGED_FRONTEND" ]; then
+  echo "🎨 Linting & formatting frontend staged files..."
+  (cd frontend && npx lint-staged) || exit 1
+fi
+
+# ── Backend: Ruff lint + format on staged Python files ───────────────────────
+STAGED_PY=$(git diff --cached --name-only | grep '^backend/.*\.py$')
+if [ -n "$STAGED_PY" ]; then
+  echo "🐍 Linting & formatting backend staged Python files..."
+
+  # Locate ruff: prefer global PATH, then fall back to the project venv
+  # (works whether or not the venv is activated)
+  RUFF_CMD=""
+  if command -v ruff > /dev/null 2>&1; then
+    RUFF_CMD="ruff"
+  elif [ -f "backend/.venv/Scripts/ruff" ]; then
+    # Windows / Git Bash venv
+    RUFF_CMD="backend/.venv/Scripts/ruff"
+  elif [ -f "backend/.venv/bin/ruff" ]; then
+    # Unix venv
+    RUFF_CMD="backend/.venv/bin/ruff"
+  else
+    echo ""
+    echo "  ❌ 'ruff' not found. Install it with:"
+    echo "     pip install -r backend/requirements-dev.txt"
+    echo ""
+    exit 1
+  fi
+
+  # Auto-fix lint issues, then format; re-stage any modified files
+  $RUFF_CMD check --fix $STAGED_PY || exit 1
+  $RUFF_CMD format $STAGED_PY      || exit 1
+  git add $STAGED_PY
+fi
+
+echo "✅ All pre-commit checks passed!"

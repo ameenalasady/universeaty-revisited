@@ -1,10 +1,10 @@
-import React from 'react';
+import React from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from '@/components/ui/button';
-import { Eye, BarChart3 } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { CourseDetailsSection } from '@/services/api';
-import SectionHistoryChart from './SectionHistoryChart';
+import { Button } from "@/components/ui/button";
+import { Eye, BarChart3 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { CourseDetailsSection } from "@/services/api";
+import SectionHistoryChart from "./SectionHistoryChart";
 
 interface SectionCardProps {
   section: CourseDetailsSection;
@@ -35,11 +35,9 @@ const SectionCard: React.FC<SectionCardProps> = ({
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
               Section
             </span>
-            <span className="text-xl font-bold tracking-tight">
-              {section.section}
-            </span>
+            <span className="text-xl font-bold tracking-tight">{section.section}</span>
           </div>
-          
+
           <Badge
             variant={hasOpenSeats ? "default" : "destructive"}
             className={cn(
@@ -49,8 +47,10 @@ const SectionCard: React.FC<SectionCardProps> = ({
                 : "bg-red-500/10 text-red-400 border-red-500/20"
             )}
           >
-            {hasOpenSeats ? 'OPEN' : 'FULL'}
-            <span className="ml-1.5 opacity-80 font-medium">({section.open_seats}/{section.total_seats})</span>
+            {hasOpenSeats ? "OPEN" : "FULL"}
+            <span className="ml-1.5 opacity-80 font-medium">
+              ({section.open_seats}/{section.total_seats})
+            </span>
           </Badge>
         </div>
 
@@ -63,7 +63,7 @@ const SectionCard: React.FC<SectionCardProps> = ({
             disabled={hasOpenSeats || isWatchMutationPending}
           >
             <Eye className="h-4 w-4" />
-            {isWatchMutationPending ? 'Watching...' : (hasOpenSeats ? 'Open' : 'Watch Section')}
+            {isWatchMutationPending ? "Watching..." : hasOpenSeats ? "Open" : "Watch Section"}
           </Button>
 
           {hasHistorySupport && (
@@ -74,7 +74,7 @@ const SectionCard: React.FC<SectionCardProps> = ({
                 "h-11 w-11 shrink-0 transition-colors rounded-lg",
                 isHistoryExpanded && "bg-primary/20 text-primary border-primary/30"
               )}
-              onClick={() => setIsHistoryExpanded(v => !v)}
+              onClick={() => setIsHistoryExpanded((v) => !v)}
               aria-label="Toggle seat history"
             >
               <BarChart3 className="h-5 w-5" />

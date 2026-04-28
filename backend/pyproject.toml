@@ -1,0 +1,33 @@
+[tool.ruff]
+# Target the Python version in use
+target-version = "py311"
+line-length = 88
+
+# Which directories to check
+src = ["src"]
+
+[tool.ruff.lint]
+# Rule sets:
+#   E/W  — pycodestyle errors & warnings
+#   F    — Pyflakes (undefined names, unused imports, etc.)
+#   I    — isort (import ordering)
+#   UP   — pyupgrade (modernise syntax)
+#   B    — flake8-bugbear (common bug patterns)
+select = ["E", "W", "F", "I", "UP", "B"]
+
+# Rules that are too noisy or conflict with project style
+ignore = [
+    "E501",   # line too long — handled by the formatter
+    "B008",   # do not perform function calls in default arguments (Flask patterns)
+    "UP007",  # Use X | Y for union types — keep Optional[] for clarity
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Allow star imports and unused names in __init__ re-export files
+"__init__.py" = ["F401", "F403"]
+
+[tool.ruff.format]
+# Use double quotes (PEP 8 default)
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

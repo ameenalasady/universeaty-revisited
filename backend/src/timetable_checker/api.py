@@ -12,42 +12,44 @@ Imports necessary libraries:
 - dotenv: To load environment variables (like email credentials) from a .env file.
 - time: Standard library for time-related functions (though minimally used here directly).
 """
+
+import atexit
 import logging
-import re
-import sys
 import os
+import re
 import secrets
+import string
+import sys
+import threading
+import time
+from datetime import UTC, datetime, timedelta
 from functools import wraps
-from flask import Flask, request, jsonify, g
+
+import jwt
+import requests
+from flask import Flask, g, jsonify, request
+from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from flask_cors import CORS
-import time
 from werkzeug.middleware.proxy_fix import ProxyFix
-from datetime import datetime, timezone, timedelta
-import threading
-import requests
-import atexit
-import jwt
-import string
 
 # --- Import Configuration First ---
 # This module now handles path calculation and .env loading
 from .config import (
     ADMIN_API_KEY,
-    EMAIL_PASSWORD,
-    EMAIL_SENDER,
+    AUTH_TOKEN_EXPIRY_MINUTES,
+    BASE_URL_MYTIMETABLE,
     DATABASE_PATH,
     DEFAULT_CHECK_INTERVAL_SECONDS,
     DEFAULT_UPDATE_INTERVAL_SECONDS,
-    BASE_URL_MYTIMETABLE,
-    MAX_EMAIL_LENGTH,
-    MAX_TERM_ID_LENGTH,
-    MAX_COURSE_CODE_LENGTH,
-    MAX_SECTION_KEY_LENGTH,
-    JWT_SECRET_KEY,
-    AUTH_TOKEN_EXPIRY_MINUTES,
+    EMAIL_PASSWORD,
+    EMAIL_SENDER,
     JWT_EXPIRY_HOURS,
+    JWT_SECRET_KEY,
+    MAX_COURSE_CODE_LENGTH,
+    MAX_EMAIL_LENGTH,
+    MAX_SECTION_KEY_LENGTH,
+    MAX_TERM_ID_LENGTH,
     UNIVERSEATY_URL,
 )
 
@@ -57,7 +59,6 @@ Imports the centralized logging configuration from logging_config.py.
 This sets up file and console handlers for the entire application.
 Must be imported before the first logging call (and after config).
 """
-from . import logging_config
 
 # --- Application-Specific Imports ---
 """
@@ -67,24 +68,34 @@ ImportError if the client file is missing, preventing the application
 from starting incorrectly.
 """
 try:
-    from .timetable_client import McMasterTimetableClient
     from .exceptions import (
-        InvalidInputError, TermNotFoundError, CourseNotFoundError, SectionNotFoundError,
-        SeatsAlreadyOpenError, AlreadyPendingError, DatabaseError, ExternalApiError,
-        DataNotReadyError, NotificationSystemError, TimetableCheckerBaseError
+        AlreadyPendingError,
+        CourseNotFoundError,
+        DatabaseError,
+        DataNotReadyError,
+        ExternalApiError,
+        InvalidInputError,
+        SeatsAlreadyOpenError,
+        SectionNotFoundError,
+        TermNotFoundError,
+        TimetableCheckerBaseError,
     )
+    from .timetable_client import McMasterTimetableClient
 except ImportError as e:
     print(f"Error: Could not import required components: {e}", file=sys.stderr)
-    print("Ensure 'timetable_client.py' and 'exceptions.py' exist and are in the same directory or Python path.", file=sys.stderr)
+    print(
+        "Ensure 'timetable_client.py' and 'exceptions.py' exist and are in the same directory or Python path.",
+        file=sys.stderr,
+    )
     exit(1)
 
 app = Flask(__name__)
 
 app.wsgi_app = ProxyFix(
     app.wsgi_app,
-    x_for=1,     # trust X-Forwarded-For
-    x_proto=1,   # trust X-Forwarded-Proto
-    x_host=1,    # trust X-Forwarded-Host
+    x_for=1,  # trust X-Forwarded-For
+    x_proto=1,  # trust X-Forwarded-Proto
+    x_host=1,  # trust X-Forwarded-Host
     x_prefix=1,
 )
 
@@ -101,7 +112,7 @@ allowed_origins = [
     r"^http://localhost(:\d+)?$",
     r"^http://127\.0\.0\.1(:\d+)?$",
     r"^https://universeaty\.ca$",
-    r"^https://www\.universeaty\.ca$"
+    r"^https://www\.universeaty\.ca$",
 ]
 # Apply CORS globally to the app with the specified origins and credential support
 CORS(app, origins=allowed_origins, supports_credentials=True)
@@ -123,11 +134,17 @@ within certain time windows. Sets default limits and uses in-memory storage
 (suitable for development/single-instance deployments; consider Redis for production).
 """
 limiter = Limiter(
-    get_remote_address, # Function to identify the client (by remote IP)
+    get_remote_address,  # Function to identify the client (by remote IP)
     app=app,
-    default_limits=["300 per hour", "45 per minute", "3 per second"], # Global default limits
-    storage_uri=os.getenv("REDIS_URL", "memory://"), # Storage backend for rate limit counts
-    strategy="fixed-window" # Rate limiting strategy
+    default_limits=[
+        "300 per hour",
+        "45 per minute",
+        "3 per second",
+    ],  # Global default limits
+    storage_uri=os.getenv(
+        "REDIS_URL", "memory://"
+    ),  # Storage backend for rate limit counts
+    strategy="fixed-window",  # Rate limiting strategy
 )
 
 # --- Instantiate the Timetable Client ---
@@ -143,15 +160,19 @@ log.info("Initializing McMasterTimetableClient...")
 client = None
 try:
     if not EMAIL_PASSWORD or not EMAIL_SENDER:
-         log.critical("CRITICAL: EMAIL_SENDER or EMAIL_PASSWORD not set (via config). Email notifications will fail. Watch requests will be disabled.")
+        log.critical(
+            "CRITICAL: EMAIL_SENDER or EMAIL_PASSWORD not set (via config). Email notifications will fail. Watch requests will be disabled."
+        )
     client = McMasterTimetableClient(
         base_url=BASE_URL_MYTIMETABLE,
         db_path=DATABASE_PATH,
         update_interval=DEFAULT_UPDATE_INTERVAL_SECONDS,
-        check_interval=DEFAULT_CHECK_INTERVAL_SECONDS
+        check_interval=DEFAULT_CHECK_INTERVAL_SECONDS,
     )
     atexit.register(client.shutdown)
-    log.info("McMasterTimetableClient initialized successfully. Shutdown hook registered.")
+    log.info(
+        "McMasterTimetableClient initialized successfully. Shutdown hook registered."
+    )
 
 except Exception as e:
     log.critical(f"Failed to initialize McMasterTimetableClient: {e}", exc_info=True)
@@ -170,11 +191,15 @@ Therefore, `add_caching_headers` runs *before* `log_response_info`, allowing
 the logger to see the final response state including cache headers if needed (though
 current log message doesn't include headers).
 """
+
+
 @app.before_request
 def log_request_info():
     """Logs information *before* the request is processed."""
-    g.start_time = time.time() # Store start time for duration calculation
-    log.info(f"Request Start: {request.method} {request.path} from {request.remote_addr}")
+    g.start_time = time.time()  # Store start time for duration calculation
+    log.info(
+        f"Request Start: {request.method} {request.path} from {request.remote_addr}"
+    )
     # Optional: Log headers or body (use with caution for sensitive data)
     # log.debug(f"Request Headers: {dict(request.headers)}")
     # if request.is_json:
@@ -185,12 +210,15 @@ def log_request_info():
     # elif request.form:
     #     log.debug(f"Request Form: {request.form.to_dict()}")
 
+
 @app.after_request
 def log_response_info(response):
     """
     Logs information *after* the request has been processed successfully.
     """
-    duration_ms = (time.time() - g.start_time) * 1000 if hasattr(g, 'start_time') else -1
+    duration_ms = (
+        (time.time() - g.start_time) * 1000 if hasattr(g, "start_time") else -1
+    )
     log.info(
         f"Request End: {request.method} {request.path} from {request.remote_addr} "
         f"- Status: {response.status_code} - Duration: {duration_ms:.2f}ms"
@@ -201,7 +229,8 @@ def log_response_info(response):
     #         log.debug(f"Response JSON: {response.get_json()}")
     #     except Exception:
     #         log.debug("Could not get response JSON for logging.")
-    return response # Must return the response
+    return response  # Must return the response
+
 
 @app.after_request
 def add_caching_headers(response):
@@ -211,30 +240,39 @@ def add_caching_headers(response):
     """
     path = request.path
     # Apply appropriate Cache-Control directives based on endpoint and status
-    if request.method == 'GET' and 200 <= response.status_code < 300:
-        if path == '/health' or path == '/admin/health':
-            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-            response.headers['Pragma'] = 'no-cache' # HTTP/1.0 compatibility
-            response.headers['Expires'] = '0' # Proxies
-        elif path == '/terms':
+    if request.method == "GET" and 200 <= response.status_code < 300:
+        if path == "/health" or path == "/admin/health":
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"  # HTTP/1.0 compatibility
+            response.headers["Expires"] = "0"  # Proxies
+        elif path == "/terms":
             # Terms change very infrequently
-            response.headers['Cache-Control'] = 'public, max-age=3600' # Cache for 1 hour
-        elif re.match(r'/terms/\d+/courses$', path):
+            response.headers["Cache-Control"] = (
+                "public, max-age=3600"  # Cache for 1 hour
+            )
+        elif re.match(r"/terms/\d+/courses$", path):
             # Course list for a term is relatively stable during the term
-            response.headers['Cache-Control'] = 'public, max-age=600' # Cache for 10 minutes
-        elif re.match(r'/terms/\d+/courses/.+$', path):
+            response.headers["Cache-Control"] = (
+                "public, max-age=600"  # Cache for 10 minutes
+            )
+        elif re.match(r"/terms/\d+/courses/.+$", path):
             # Course details (especially seats) change frequently
-            response.headers['Cache-Control'] = 'public, max-age=60' # Cache for 1 minute
+            response.headers["Cache-Control"] = (
+                "public, max-age=60"  # Cache for 1 minute
+            )
         else:
             # Default for other successful GET requests: force revalidation
-            response.headers['Cache-Control'] = 'no-cache'
-    elif response.status_code >= 400 or request.method not in ['GET', 'HEAD']: # Apply to non-GET/HEAD too
-         # Ensure errors and non-cacheable methods (like POST, PUT, DELETE) are not cached
-         response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
-         response.headers['Pragma'] = 'no-cache'
-         response.headers['Expires'] = '0'
+            response.headers["Cache-Control"] = "no-cache"
+    elif response.status_code >= 400 or request.method not in [
+        "GET",
+        "HEAD",
+    ]:  # Apply to non-GET/HEAD too
+        # Ensure errors and non-cacheable methods (like POST, PUT, DELETE) are not cached
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
 
-    return response # Must return the response
+    return response  # Must return the response
 
 
 @app.teardown_request
@@ -245,11 +283,13 @@ def log_exception_info(exception=None):
     # This provides an additional layer, especially for unhandled ones or issues
     # during response generation *after* the main view function returns.
     if exception is not None:
-        duration_ms = (time.time() - g.start_time) * 1000 if hasattr(g, 'start_time') else -1
+        duration_ms = (
+            (time.time() - g.start_time) * 1000 if hasattr(g, "start_time") else -1
+        )
         log.error(
             f"Request Exception: {request.method} {request.path} from {request.remote_addr} "
             f"- Duration: {duration_ms:.2f}ms - Exception: {exception}",
-            exc_info=exception # Provide full traceback for errors
+            exc_info=exception,  # Provide full traceback for errors
         )
 
 
@@ -262,74 +302,111 @@ Contains utility functions used by the API endpoints:
   JSON response tuple, preventing endpoints from proceeding without a working client.
   Otherwise, it returns the client instance.
 """
+
+
 def is_valid_email(email):
     """Basic email format validation using regex."""
     if not email or not isinstance(email, str):
         return False
     # Stricter regex to disallow consecutive dots in domain and ensure domain labels are valid
     # This regex is more robust against common invalid patterns like "foo@bar..com"
-    return re.match(r"^[a-zA-Z0-9._%+-]+@(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$", email) is not None
+    return (
+        re.match(
+            r"^[a-zA-Z0-9._%+-]+@(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$",
+            email,
+        )
+        is not None
+    )
+
 
 def get_client_or_abort():
     """Checks client availability, returns client instance or error response tuple."""
     if client is None:
-        log.error("API request failed because McMasterTimetableClient is not initialized.")
+        log.error(
+            "API request failed because McMasterTimetableClient is not initialized."
+        )
         # Return a tuple that Flask can convert into a Response
-        return jsonify({"error": "Service temporarily unavailable. Client initialization failed."}), 503
-    return client # Return the initialized client instance
+        return jsonify(
+            {"error": "Service temporarily unavailable. Client initialization failed."}
+        ), 503
+    return client  # Return the initialized client instance
+
 
 # --- Authentication Decorator ---
 def require_admin_key(f):
     """Decorator to require a valid admin API key for an endpoint."""
+
     @wraps(f)
     def decorated_function(*args, **kwargs):
         provided_key = None
-        auth_header = request.headers.get('Authorization')
-        api_key_header = request.headers.get('X-Admin-API-Key') # Support custom header too
+        auth_header = request.headers.get("Authorization")
+        api_key_header = request.headers.get(
+            "X-Admin-API-Key"
+        )  # Support custom header too
 
-        if auth_header and auth_header.startswith('Bearer '):
-            provided_key = auth_header.split('Bearer ')[1]
+        if auth_header and auth_header.startswith("Bearer "):
+            provided_key = auth_header.split("Bearer ")[1]
         elif api_key_header:
             provided_key = api_key_header
 
         # Check if the key is configured on the server *and* if a key was provided
         if not ADMIN_API_KEY:
-             log.error("Admin endpoint accessed, but ADMIN_API_KEY is not configured on server (via config).")
-             return jsonify({"error": "Configuration error: Endpoint protection not set up."}), 503 # Service Unavailable
+            log.error(
+                "Admin endpoint accessed, but ADMIN_API_KEY is not configured on server (via config)."
+            )
+            return jsonify(
+                {"error": "Configuration error: Endpoint protection not set up."}
+            ), 503  # Service Unavailable
 
         if not provided_key:
-            log.warning(f"Missing API key for protected endpoint {request.path} from {request.remote_addr}")
+            log.warning(
+                f"Missing API key for protected endpoint {request.path} from {request.remote_addr}"
+            )
             return jsonify({"error": "Unauthorized: API key required."}), 401
 
         # Use secrets.compare_digest for timing-attack resistance
         if secrets.compare_digest(provided_key, ADMIN_API_KEY):
-            return f(*args, **kwargs) # Key is valid, proceed with the endpoint function
+            return f(
+                *args, **kwargs
+            )  # Key is valid, proceed with the endpoint function
         else:
-            log.warning(f"Invalid API key provided for protected endpoint {request.path} from {request.remote_addr}")
-            return jsonify({"error": "Forbidden: Invalid API key."}), 403 # Key provided but incorrect
+            log.warning(
+                f"Invalid API key provided for protected endpoint {request.path} from {request.remote_addr}"
+            )
+            return jsonify(
+                {"error": "Forbidden: Invalid API key."}
+            ), 403  # Key provided but incorrect
+
     return decorated_function
+
 
 def require_jwt_auth(f):
     """Decorator to require a valid JWT session cookie for user endpoints."""
+
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        token = request.cookies.get('session')
+        token = request.cookies.get("session")
         if not token:
             return jsonify({"error": "Unauthorized: No session token provided."}), 401
         try:
-            payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=['HS256'])
-            g.user_email = payload['sub']
+            payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=["HS256"])
+            g.user_email = payload["sub"]
         except jwt.ExpiredSignatureError:
             return jsonify({"error": "Session expired. Please log in again."}), 401
         except jwt.InvalidTokenError:
             return jsonify({"error": "Invalid session token."}), 401
         return f(*args, **kwargs)
+
     return decorated_function
+
 
 # --- API Endpoints ---
 
-@app.route('/health', methods=['GET'])
-@limiter.limit("15 per minute; 5 per 10 seconds") # Slightly more lenient limit than detailed
+
+@app.route("/health", methods=["GET"])
+@limiter.limit(
+    "15 per minute; 5 per 10 seconds"
+)  # Slightly more lenient limit than detailed
 def simple_health_check():
     """
     Endpoint: GET /health
@@ -348,7 +425,9 @@ def simple_health_check():
     if isinstance(client_or_error, tuple):
         # get_client_or_abort returned an error response (jsonify({...}), 503)
         # Return a simplified status for the public endpoint
-        log.warning("Simple health check: Client not initialized. Reporting unavailable.")
+        log.warning(
+            "Simple health check: Client not initialized. Reporting unavailable."
+        )
         return jsonify({"status": "unavailable"}), 503
     else:
         # Client is initialized
@@ -356,7 +435,7 @@ def simple_health_check():
         return jsonify({"status": "ok"}), 200
 
 
-@app.route('/admin/health', methods=['GET'])
+@app.route("/admin/health", methods=["GET"])
 @require_admin_key
 @limiter.limit("10 per minute; 3 per 10 seconds")
 def detailed_health_check():
@@ -389,19 +468,16 @@ def detailed_health_check():
             "courses_loaded": None,
         },
         "database_connection": None,
-        "background_threads": {
-            "updater_alive": None,
-            "checker_alive": None
-        },
+        "background_threads": {"updater_alive": None, "checker_alive": None},
         "email_configuration": None,
-        "fetcher_status": None, # Added check
-        "timestamp": datetime.now(timezone.utc).isoformat(timespec='seconds'),
-        "check_duration_ms": None
+        "fetcher_status": None,  # Added check
+        "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
+        "check_duration_ms": None,
     }
     # Status hierarchy: healthy -> degraded -> unhealthy
-    overall_status = "healthy" # Start optimistic
+    overall_status = "healthy"  # Start optimistic
     status_code = 200
-    active_client = None # Define here for broader scope
+    active_client = None  # Define here for broader scope
 
     # --- Check 1: Client Initialization (Critical) ---
     client_or_error = get_client_or_abort()
@@ -416,13 +492,17 @@ def detailed_health_check():
         details["background_threads"]["checker_alive"] = "skipped"
         details["fetcher_status"] = "skipped"
         # Check email config directly from imported values
-        details["email_configuration"] = "ok" if EMAIL_PASSWORD and EMAIL_SENDER else "missing_credentials"
+        details["email_configuration"] = (
+            "ok" if EMAIL_PASSWORD and EMAIL_SENDER else "missing_credentials"
+        )
         overall_status = "unhealthy"
         status_code = 503
-        log.warning("Detailed health check: Client not initialized. Reporting unhealthy.")
+        log.warning(
+            "Detailed health check: Client not initialized. Reporting unhealthy."
+        )
     else:
         # Client is initialized
-        active_client = client_or_error # Assign the actual client object
+        active_client = client_or_error  # Assign the actual client object
         details["client_initialized"] = True
         log.debug("Detailed health check: Client initialized.")
 
@@ -430,36 +510,53 @@ def detailed_health_check():
 
         # Check 2: Data Readiness (Terms - Degraded if not ready)
         try:
-            terms = active_client.get_terms() # Uses lock, returns copy
+            terms = active_client.get_terms()  # Uses lock, returns copy
             if terms and isinstance(terms, list) and len(terms) > 0:
                 details["data_readiness"]["terms_loaded"] = True
                 log.debug(f"Detailed health check: Terms loaded ({len(terms)} found).")
             else:
                 details["data_readiness"]["terms_loaded"] = False
-                if overall_status == "healthy": overall_status = "degraded"
-                log.warning("Detailed health check: Terms list is empty or not loaded. Reporting degraded.")
+                if overall_status == "healthy":
+                    overall_status = "degraded"
+                log.warning(
+                    "Detailed health check: Terms list is empty or not loaded. Reporting degraded."
+                )
         except Exception as e:
             details["data_readiness"]["terms_loaded"] = f"error: {type(e).__name__}"
-            if overall_status == "healthy": overall_status = "degraded"
-            log.error(f"Detailed health check: Error checking terms: {e}", exc_info=True)
+            if overall_status == "healthy":
+                overall_status = "degraded"
+            log.error(
+                f"Detailed health check: Error checking terms: {e}", exc_info=True
+            )
 
         # Check 2b: Data Readiness (Courses - Degraded if not ready)
         try:
             # Check if the courses dictionary is populated for *any* term
-            courses_data = active_client.get_courses() # Gets dict copy
-            if courses_data and isinstance(courses_data, dict) and any(bool(v) for v in courses_data.values()):
-                 details["data_readiness"]["courses_loaded"] = True
-                 total_courses = sum(len(v) for v in courses_data.values())
-                 log.debug(f"Detailed health check: Courses loaded ({len(courses_data)} terms, {total_courses} total courses).")
+            courses_data = active_client.get_courses()  # Gets dict copy
+            if (
+                courses_data
+                and isinstance(courses_data, dict)
+                and any(bool(v) for v in courses_data.values())
+            ):
+                details["data_readiness"]["courses_loaded"] = True
+                total_courses = sum(len(v) for v in courses_data.values())
+                log.debug(
+                    f"Detailed health check: Courses loaded ({len(courses_data)} terms, {total_courses} total courses)."
+                )
             else:
                 details["data_readiness"]["courses_loaded"] = False
-                if overall_status == "healthy": overall_status = "degraded"
-                log.warning("Detailed health check: Courses data structure is empty or contains no course lists. Reporting degraded.")
+                if overall_status == "healthy":
+                    overall_status = "degraded"
+                log.warning(
+                    "Detailed health check: Courses data structure is empty or contains no course lists. Reporting degraded."
+                )
         except Exception as e:
             details["data_readiness"]["courses_loaded"] = f"error: {type(e).__name__}"
-            if overall_status == "healthy": overall_status = "degraded"
-            log.error(f"Detailed health check: Error checking courses: {e}", exc_info=True)
-
+            if overall_status == "healthy":
+                overall_status = "degraded"
+            log.error(
+                f"Detailed health check: Error checking courses: {e}", exc_info=True
+            )
 
         # Check 3: Database Connectivity (Critical - Unhealthy if failed)
         try:
@@ -469,63 +566,103 @@ def detailed_health_check():
                 log.debug("Detailed health check: Database connection successful.")
             else:
                 details["database_connection"] = "error"
-                overall_status = "unhealthy" # Database is critical
+                overall_status = "unhealthy"  # Database is critical
                 status_code = 503
-                log.error("Detailed health check: Database connection failed. Reporting unhealthy.")
+                log.error(
+                    "Detailed health check: Database connection failed. Reporting unhealthy."
+                )
         except AttributeError:
-             details["database_connection"] = "error: storage component missing"
-             overall_status = "unhealthy"
-             status_code = 503
-             log.error("Detailed health check: Client object missing 'storage' attribute.")
+            details["database_connection"] = "error: storage component missing"
+            overall_status = "unhealthy"
+            status_code = 503
+            log.error(
+                "Detailed health check: Client object missing 'storage' attribute."
+            )
         except Exception as e:
             details["database_connection"] = f"error: {type(e).__name__}"
-            overall_status = "unhealthy" # Assume DB error is critical
+            overall_status = "unhealthy"  # Assume DB error is critical
             status_code = 503
-            log.error(f"Detailed health check: Unexpected error checking database connection: {e}", exc_info=False)
+            log.error(
+                f"Detailed health check: Unexpected error checking database connection: {e}",
+                exc_info=False,
+            )
 
         # Check 4: Background Thread Status (Degraded if failed)
         try:
-            updater_thread = getattr(active_client, 'update_thread', None)
-            checker_thread = getattr(active_client, 'check_thread', None)
+            updater_thread = getattr(active_client, "update_thread", None)
+            checker_thread = getattr(active_client, "check_thread", None)
 
-            updater_alive = isinstance(updater_thread, threading.Thread) and updater_thread.is_alive()
-            checker_alive = isinstance(checker_thread, threading.Thread) and checker_thread.is_alive()
+            updater_alive = (
+                isinstance(updater_thread, threading.Thread)
+                and updater_thread.is_alive()
+            )
+            checker_alive = (
+                isinstance(checker_thread, threading.Thread)
+                and checker_thread.is_alive()
+            )
 
             details["background_threads"]["updater_alive"] = updater_alive
             details["background_threads"]["checker_alive"] = checker_alive
 
             if not updater_alive:
-                if overall_status == "healthy": overall_status = "degraded"
-                log.warning("Detailed health check: Term/Course Updater thread is not alive. Reporting degraded.")
+                if overall_status == "healthy":
+                    overall_status = "degraded"
+                log.warning(
+                    "Detailed health check: Term/Course Updater thread is not alive. Reporting degraded."
+                )
             else:
-                 log.debug("Detailed health check: Term/Course Updater thread is alive.")
+                log.debug("Detailed health check: Term/Course Updater thread is alive.")
 
             if not checker_alive:
-                if overall_status == "healthy": overall_status = "degraded"
-                log.warning("Detailed health check: Watch Checker thread is not alive. Reporting degraded.")
+                if overall_status == "healthy":
+                    overall_status = "degraded"
+                log.warning(
+                    "Detailed health check: Watch Checker thread is not alive. Reporting degraded."
+                )
             else:
                 log.debug("Detailed health check: Watch Checker thread is alive.")
 
         except Exception as e:
-            details["background_threads"]["updater_alive"] = f"error: {type(e).__name__}"
-            details["background_threads"]["checker_alive"] = f"error: {type(e).__name__}"
-            if overall_status == "healthy": overall_status = "degraded" # Consider thread check failure as degraded
-            log.error(f"Detailed health check: Error checking background threads: {e}", exc_info=False)
+            details["background_threads"]["updater_alive"] = (
+                f"error: {type(e).__name__}"
+            )
+            details["background_threads"]["checker_alive"] = (
+                f"error: {type(e).__name__}"
+            )
+            if overall_status == "healthy":
+                overall_status = "degraded"  # Consider thread check failure as degraded
+            log.error(
+                f"Detailed health check: Error checking background threads: {e}",
+                exc_info=False,
+            )
 
         # Check 5: Fetcher Status (Basic init check - Degraded if failed)
         try:
-            fetcher = getattr(active_client, 'fetcher', None)
-            if fetcher and hasattr(fetcher, 'session') and isinstance(fetcher.session, requests.Session):
+            fetcher = getattr(active_client, "fetcher", None)
+            if (
+                fetcher
+                and hasattr(fetcher, "session")
+                and isinstance(fetcher.session, requests.Session)
+            ):
                 details["fetcher_status"] = "initialized"
-                log.debug("Detailed health check: Fetcher component appears initialized.")
+                log.debug(
+                    "Detailed health check: Fetcher component appears initialized."
+                )
             else:
                 details["fetcher_status"] = "not_initialized_or_missing"
-                if overall_status == "healthy": overall_status = "degraded"
-                log.warning("Detailed health check: Fetcher component missing or not initialized properly. Reporting degraded.")
+                if overall_status == "healthy":
+                    overall_status = "degraded"
+                log.warning(
+                    "Detailed health check: Fetcher component missing or not initialized properly. Reporting degraded."
+                )
         except Exception as e:
             details["fetcher_status"] = f"error: {type(e).__name__}"
-            if overall_status == "healthy": overall_status = "degraded"
-            log.error(f"Detailed health check: Error checking fetcher status: {e}", exc_info=False)
+            if overall_status == "healthy":
+                overall_status = "degraded"
+            log.error(
+                f"Detailed health check: Error checking fetcher status: {e}",
+                exc_info=False,
+            )
 
     # --- Check 6: Email Configuration (Performed regardless of client state - Degraded if missing) ---
     if EMAIL_PASSWORD and EMAIL_SENDER:
@@ -533,17 +670,22 @@ def detailed_health_check():
         log.debug("Detailed health check: Email configuration appears ok.")
     else:
         details["email_configuration"] = "missing_credentials"
-        if overall_status == "healthy": overall_status = "degraded"
-        log.warning("Detailed health check: Email credentials (PASSWORD/EMAIL_SENDER) missing (via config). Reporting degraded (if not already unhealthy).")
+        if overall_status == "healthy":
+            overall_status = "degraded"
+        log.warning(
+            "Detailed health check: Email credentials (PASSWORD/EMAIL_SENDER) missing (via config). Reporting degraded (if not already unhealthy)."
+        )
 
     # --- Final Response ---
     duration_ms = (time.time() - start_time) * 1000
     details["check_duration_ms"] = round(duration_ms, 2)
-    log.info(f"Detailed health check completed in {duration_ms:.2f}ms. Final Status: {overall_status} (HTTP {status_code})")
+    log.info(
+        f"Detailed health check completed in {duration_ms:.2f}ms. Final Status: {overall_status} (HTTP {status_code})"
+    )
     return jsonify({"status": overall_status, "details": details}), status_code
 
 
-@app.route('/terms', methods=['GET'])
+@app.route("/terms", methods=["GET"])
 @limiter.limit("60 per minute; 5 per second")
 def get_terms():
     """
@@ -557,7 +699,8 @@ def get_terms():
     Cache: Public, 1 hour max-age (set in add_caching_headers).
     """
     active_client = get_client_or_abort()
-    if isinstance(active_client, tuple): return active_client
+    if isinstance(active_client, tuple):
+        return active_client
 
     try:
         terms = active_client.get_terms()
@@ -567,7 +710,8 @@ def get_terms():
         log.error(f"Error in /terms endpoint: {e}", exc_info=True)
         return jsonify({"error": "An internal error occurred retrieving terms."}), 500
 
-@app.route('/terms/<string:term_id>/courses', methods=['GET'])
+
+@app.route("/terms/<string:term_id>/courses", methods=["GET"])
 @limiter.limit("60 per minute; 5 per second")
 def get_term_courses(term_id):
     """
@@ -586,7 +730,8 @@ def get_term_courses(term_id):
     Cache: Public, 10 minutes max-age (set in add_caching_headers).
     """
     active_client = get_client_or_abort()
-    if isinstance(active_client, tuple): return active_client
+    if isinstance(active_client, tuple):
+        return active_client
 
     if not term_id.isdigit():
         log.warning(f"Invalid term ID format requested: {term_id}")
@@ -594,7 +739,7 @@ def get_term_courses(term_id):
 
     try:
         # Validate term existence by checking against the client's known terms
-        available_terms = {t['id'] for t in active_client.get_terms()}
+        available_terms = {t["id"] for t in active_client.get_terms()}
         if term_id not in available_terms:
             log.warning(f"Term ID '{term_id}' requested but not found.")
             return jsonify({"error": f"Term ID '{term_id}' not found."}), 404
@@ -603,8 +748,14 @@ def get_term_courses(term_id):
         # Handle case where client might return None if data isn't loaded yet
         # get_courses returns None if term exists in cache but courses list is None
         if courses is None:
-             log.warning(f"Course data requested but not available for term '{term_id}'.")
-             return jsonify({"error": f"Course data not available for term '{term_id}'. Check back later."}), 503
+            log.warning(
+                f"Course data requested but not available for term '{term_id}'."
+            )
+            return jsonify(
+                {
+                    "error": f"Course data not available for term '{term_id}'. Check back later."
+                }
+            ), 503
 
         log.debug(f"Retrieved {len(courses)} courses for term {term_id}.")
         return jsonify(courses)
@@ -612,7 +763,8 @@ def get_term_courses(term_id):
         log.error(f"Error in /terms/{term_id}/courses endpoint: {e}", exc_info=True)
         return jsonify({"error": "An internal error occurred retrieving courses."}), 500
 
-@app.route('/terms/<string:term_id>/courses/<path:course_code>', methods=['GET'])
+
+@app.route("/terms/<string:term_id>/courses/<path:course_code>", methods=["GET"])
 @limiter.limit("100 per hour; 15 per minute; 2 per second")
 def fetch_course_details(term_id, course_code):
     """
@@ -637,62 +789,94 @@ def fetch_course_details(term_id, course_code):
     Cache: Public, 1 minute max-age (set in add_caching_headers).
     """
     active_client = get_client_or_abort()
-    if isinstance(active_client, tuple): return active_client
+    if isinstance(active_client, tuple):
+        return active_client
 
     if not term_id.isdigit():
         return jsonify({"error": "Invalid term ID format. Must be numeric."}), 400
 
     # Basic validation for course code format (allows letters, numbers, spaces, hyphens)
     if not course_code or not re.match(r"^[A-Za-z0-9\s\-]+$", course_code.strip()):
-         log.warning(f"Invalid course code format received: '{course_code}'")
-         return jsonify({"error": "Invalid course code format."}), 400
+        log.warning(f"Invalid course code format received: '{course_code}'")
+        return jsonify({"error": "Invalid course code format."}), 400
 
     # Normalize code for consistent lookups
     normalized_course_code = course_code.strip().upper()
     # Further normalize spaces if applicable (e.g., "COMPSCI  1JC3" -> "COMPSCI 1JC3")
-    normalized_course_code = ' '.join(normalized_course_code.split())
+    normalized_course_code = " ".join(normalized_course_code.split())
 
     try:
         # Validate term existence
-        available_terms = {t['id'] for t in active_client.get_terms()}
+        available_terms = {t["id"] for t in active_client.get_terms()}
         if term_id not in available_terms:
-            log.warning(f"Term ID '{term_id}' not found during course detail request for '{normalized_course_code}'.")
+            log.warning(
+                f"Term ID '{term_id}' not found during course detail request for '{normalized_course_code}'."
+            )
             return jsonify({"error": f"Term ID '{term_id}' not found."}), 404
 
         # Validate course existence within the term before fetching details
         courses_in_term = active_client.get_courses(term_id)
 
-        if courses_in_term is None: # Check if course list is None (meaning not loaded yet)
-             log.warning(f"Course list not ready for term {term_id} during detail request for '{normalized_course_code}'.")
-             return jsonify({"error": f"Course list for term '{term_id}' is not ready. Please try again shortly."}), 503
+        if (
+            courses_in_term is None
+        ):  # Check if course list is None (meaning not loaded yet)
+            log.warning(
+                f"Course list not ready for term {term_id} during detail request for '{normalized_course_code}'."
+            )
+            return jsonify(
+                {
+                    "error": f"Course list for term '{term_id}' is not ready. Please try again shortly."
+                }
+            ), 503
         if normalized_course_code not in courses_in_term:
-             log.warning(f"Course code '{normalized_course_code}' not found in term '{term_id}'.")
-             return jsonify({"error": f"Course code '{normalized_course_code}' not found in term '{term_id}'."}), 404
+            log.warning(
+                f"Course code '{normalized_course_code}' not found in term '{term_id}'."
+            )
+            return jsonify(
+                {
+                    "error": f"Course code '{normalized_course_code}' not found in term '{term_id}'."
+                }
+            ), 404
 
         # Fetch details using the fetcher component of the client
-        log.info(f"Fetching details for course '{normalized_course_code}' in term {term_id}.")
+        log.info(
+            f"Fetching details for course '{normalized_course_code}' in term {term_id}."
+        )
         # Original approach assumed client had a unified fetch method, let's keep that assumption for now
         # If the client's internal method is fetch_course_details which uses the fetcher:
-        details = active_client.fetcher.fetch_course_details(term_id, [normalized_course_code]) # Using fetcher directly, as before
+        details = active_client.fetcher.fetch_course_details(
+            term_id, [normalized_course_code]
+        )  # Using fetcher directly, as before
 
         course_detail_data = details.get(normalized_course_code)
 
         # Check if details were found (handles empty results or API issues for that specific course)
         # The current check `if not course_detail_data:` correctly handles {} or {course_code: {}}
         if not course_detail_data:
-            log.warning(f"Details requested but not found or empty for '{normalized_course_code}' in term {term_id}.")
+            log.warning(
+                f"Details requested but not found or empty for '{normalized_course_code}' in term {term_id}."
+            )
             # Return 404 if the course *exists* but details/sections are empty/unavailable from the source
-            return jsonify({"error": f"Could not retrieve details for course '{normalized_course_code}' in term '{term_id}'. It might have no sections listed or data is currently unavailable."}), 404
+            return jsonify(
+                {
+                    "error": f"Could not retrieve details for course '{normalized_course_code}' in term '{term_id}'. It might have no sections listed or data is currently unavailable."
+                }
+            ), 404
 
         # log.debug(f"Successfully retrieved details for {normalized_course_code} (Term {term_id}): {course_detail_data}") # Optional debug log
         return jsonify(course_detail_data)
 
-    except Exception as e: # General exception catch remains
-        log.error(f"Error in /terms/{term_id}/courses/{course_code} endpoint: {e}", exc_info=True)
-        return jsonify({"error": "An internal error occurred retrieving course details."}), 500
+    except Exception as e:  # General exception catch remains
+        log.error(
+            f"Error in /terms/{term_id}/courses/{course_code} endpoint: {e}",
+            exc_info=True,
+        )
+        return jsonify(
+            {"error": "An internal error occurred retrieving course details."}
+        ), 500
 
 
-@app.route('/watch', methods=['POST'])
+@app.route("/watch", methods=["POST"])
 @limiter.limit("30 per hour; 10 per minute; 3 per 10 seconds")
 def add_watch_request():
     """
@@ -722,12 +906,19 @@ def add_watch_request():
     Cache: No-store (POST request, set in add_caching_headers).
     """
     active_client = get_client_or_abort()
-    if isinstance(active_client, tuple): return active_client
+    if isinstance(active_client, tuple):
+        return active_client
 
     # --- Pre-flight Check: Email Configuration ---
     if not EMAIL_PASSWORD or not EMAIL_SENDER:
-        log.error("Attempted to add watch request, but email sender or password is not configured (via config).")
-        return jsonify({"error": "Cannot add watch request: Notification system is not configured correctly."}), 503
+        log.error(
+            "Attempted to add watch request, but email sender or password is not configured (via config)."
+        )
+        return jsonify(
+            {
+                "error": "Cannot add watch request: Notification system is not configured correctly."
+            }
+        ), 503
 
     # --- Request Body Validation ---
     if not request.is_json:
@@ -735,9 +926,13 @@ def add_watch_request():
 
     data = request.get_json()
     required_fields = ["email", "term_id", "course_code", "section_key"]
-    missing_fields = [field for field in required_fields if field not in data or data[field] is None]
+    missing_fields = [
+        field for field in required_fields if field not in data or data[field] is None
+    ]
     if missing_fields:
-        return jsonify({"error": f"Missing required fields: {', '.join(missing_fields)}"}), 400
+        return jsonify(
+            {"error": f"Missing required fields: {', '.join(missing_fields)}"}
+        ), 400
 
     # Basic format validation (more robust validation happens in client)
     email = data.get("email")
@@ -746,71 +941,115 @@ def add_watch_request():
     section_key = data.get("section_key")
 
     # Simple pre-validation before hitting client logic
-    if not isinstance(email, str): # Check type first
-         log.warning(f"/watch request failed: 'email' is not a string ({type(email)}).")
-         return jsonify({"error": "Invalid 'email' format (must be a string)."}), 400
+    if not isinstance(email, str):  # Check type first
+        log.warning(f"/watch request failed: 'email' is not a string ({type(email)}).")
+        return jsonify({"error": "Invalid 'email' format (must be a string)."}), 400
     if len(email) > MAX_EMAIL_LENGTH:
-         log.warning(f"/watch request failed: 'email' length ({len(email)}) exceeds limit ({MAX_EMAIL_LENGTH}). Email: {email[:10]}...") # Log prefix
-         return jsonify({"error": f"Provided 'email' exceeds maximum length of {MAX_EMAIL_LENGTH} characters."}), 400
+        log.warning(
+            f"/watch request failed: 'email' length ({len(email)}) exceeds limit ({MAX_EMAIL_LENGTH}). Email: {email[:10]}..."
+        )  # Log prefix
+        return jsonify(
+            {
+                "error": f"Provided 'email' exceeds maximum length of {MAX_EMAIL_LENGTH} characters."
+            }
+        ), 400
     if not is_valid_email(email):
-         log.warning(f"/watch request failed: 'email' format invalid. Email: {email}")
-         return jsonify({"error": "Invalid 'email' format."}), 400
+        log.warning(f"/watch request failed: 'email' format invalid. Email: {email}")
+        return jsonify({"error": "Invalid 'email' format."}), 400
 
-    if not isinstance(term_id, str): # Check type first
-         log.warning(f"/watch request failed: 'term_id' is not a string ({type(term_id)}).")
-         return jsonify({"error": "Invalid 'term_id' format (must be a string)."}), 400
+    if not isinstance(term_id, str):  # Check type first
+        log.warning(
+            f"/watch request failed: 'term_id' is not a string ({type(term_id)})."
+        )
+        return jsonify({"error": "Invalid 'term_id' format (must be a string)."}), 400
     if len(term_id) > MAX_TERM_ID_LENGTH:
-         log.warning(f"/watch request failed: 'term_id' length ({len(term_id)}) exceeds limit ({MAX_TERM_ID_LENGTH}). Term ID: {term_id}")
-         return jsonify({"error": f"Provided 'term_id' exceeds maximum length of {MAX_TERM_ID_LENGTH} characters."}), 400
+        log.warning(
+            f"/watch request failed: 'term_id' length ({len(term_id)}) exceeds limit ({MAX_TERM_ID_LENGTH}). Term ID: {term_id}"
+        )
+        return jsonify(
+            {
+                "error": f"Provided 'term_id' exceeds maximum length of {MAX_TERM_ID_LENGTH} characters."
+            }
+        ), 400
     if not term_id.isdigit():
-         log.warning(f"/watch request failed: 'term_id' is not numeric. Term ID: {term_id}")
-         return jsonify({"error": "Invalid 'term_id' format (must be numeric string)."}), 400
+        log.warning(
+            f"/watch request failed: 'term_id' is not numeric. Term ID: {term_id}"
+        )
+        return jsonify(
+            {"error": "Invalid 'term_id' format (must be numeric string)."}
+        ), 400
 
-    if not isinstance(course_code, str): # Check type first
-         log.warning(f"/watch request failed: 'course_code' is not a string ({type(course_code)}).")
-         return jsonify({"error": "Invalid 'course_code' format (must be a string)."}), 400
+    if not isinstance(course_code, str):  # Check type first
+        log.warning(
+            f"/watch request failed: 'course_code' is not a string ({type(course_code)})."
+        )
+        return jsonify(
+            {"error": "Invalid 'course_code' format (must be a string)."}
+        ), 400
     if len(course_code) > MAX_COURSE_CODE_LENGTH:
-         log.warning(f"/watch request failed: 'course_code' length ({len(course_code)}) exceeds limit ({MAX_COURSE_CODE_LENGTH}). Course Code: {course_code[:20]}...") # Log prefix
-         return jsonify({"error": f"Provided 'course_code' exceeds maximum length of {MAX_COURSE_CODE_LENGTH} characters."}), 400
+        log.warning(
+            f"/watch request failed: 'course_code' length ({len(course_code)}) exceeds limit ({MAX_COURSE_CODE_LENGTH}). Course Code: {course_code[:20]}..."
+        )  # Log prefix
+        return jsonify(
+            {
+                "error": f"Provided 'course_code' exceeds maximum length of {MAX_COURSE_CODE_LENGTH} characters."
+            }
+        ), 400
     if not course_code.strip():
-         log.warning(f"/watch request failed: 'course_code' is missing or empty.")
-         return jsonify({"error": "Missing or empty 'course_code'."}), 400
+        log.warning("/watch request failed: 'course_code' is missing or empty.")
+        return jsonify({"error": "Missing or empty 'course_code'."}), 400
 
-    if not isinstance(section_key, str): # Check type first
-        log.warning(f"/watch request failed: 'section_key' is not a string ({type(section_key)}).")
-        return jsonify({"error": "Invalid 'section_key' format (must be a string)."}), 400
+    if not isinstance(section_key, str):  # Check type first
+        log.warning(
+            f"/watch request failed: 'section_key' is not a string ({type(section_key)})."
+        )
+        return jsonify(
+            {"error": "Invalid 'section_key' format (must be a string)."}
+        ), 400
     if len(section_key) > MAX_SECTION_KEY_LENGTH:
-        log.warning(f"/watch request failed: 'section_key' length ({len(section_key)}) exceeds limit ({MAX_SECTION_KEY_LENGTH}). Section Key: {section_key[:20]}...") # Log prefix
-        return jsonify({"error": f"Provided 'section_key' exceeds maximum length of {MAX_SECTION_KEY_LENGTH} characters."}), 400
+        log.warning(
+            f"/watch request failed: 'section_key' length ({len(section_key)}) exceeds limit ({MAX_SECTION_KEY_LENGTH}). Section Key: {section_key[:20]}..."
+        )  # Log prefix
+        return jsonify(
+            {
+                "error": f"Provided 'section_key' exceeds maximum length of {MAX_SECTION_KEY_LENGTH} characters."
+            }
+        ), 400
     if not section_key.strip():
-        log.warning(f"/watch request failed: 'section_key' is missing or empty.")
+        log.warning("/watch request failed: 'section_key' is missing or empty.")
         return jsonify({"error": "Missing or empty 'section_key'."}), 400
 
     # Normalize course code for client
-    normalized_course_code = ' '.join(course_code.strip().upper().split())
+    normalized_course_code = " ".join(course_code.strip().upper().split())
 
-    log.info(f"Processing watch request from {email} for {normalized_course_code} [{section_key}] in term {term_id}")
+    log.info(
+        f"Processing watch request from {email} for {normalized_course_code} [{section_key}] in term {term_id}"
+    )
 
     # --- Call Client Method with Exception Handling ---
     try:
         # Client method now returns (message, request_id) on success
         # or raises specific exceptions on failure.
         success_message, request_id = active_client.add_course_watch_request(
-            email=email.lower(), # Normalize email
+            email=email.lower(),  # Normalize email
             term_id=term_id,
             course_code=normalized_course_code,
-            section_key=section_key.strip() # Normalize section key
+            section_key=section_key.strip(),  # Normalize section key
         )
 
-        log.info(f"Successfully processed watch request. Client message: {success_message}")
+        log.info(
+            f"Successfully processed watch request. Client message: {success_message}"
+        )
 
         # Determine status code based on success message content
         if "reactivated" in success_message.lower():
-            status_code = 200 # OK for reactivation
+            status_code = 200  # OK for reactivation
         else:
-            status_code = 201 # Created for new request
+            status_code = 201  # Created for new request
 
-        return jsonify({"message": success_message, "request_id": request_id}), status_code
+        return jsonify(
+            {"message": success_message, "request_id": request_id}
+        ), status_code
 
     # --- Specific Exception Handling ---
     except InvalidInputError as e:
@@ -818,43 +1057,66 @@ def add_watch_request():
         return jsonify({"error": str(e)}), 400
     except TermNotFoundError as e:
         log.warning(f"Watch request failed (TermNotFoundError): {e}")
-        return jsonify({"error": str(e)}), 400 # Term ID provided by user was invalid
+        return jsonify({"error": str(e)}), 400  # Term ID provided by user was invalid
     except CourseNotFoundError as e:
         log.warning(f"Watch request failed (CourseNotFoundError): {e}")
-        return jsonify({"error": str(e)}), 400 # Course code provided by user was invalid for term
+        return jsonify(
+            {"error": str(e)}
+        ), 400  # Course code provided by user was invalid for term
     except SectionNotFoundError as e:
         log.warning(f"Watch request failed (SectionNotFoundError): {e}")
-        return jsonify({"error": str(e)}), 400 # Section key provided by user was invalid for course/term
+        return jsonify(
+            {"error": str(e)}
+        ), 400  # Section key provided by user was invalid for course/term
     except SeatsAlreadyOpenError as e:
         log.warning(f"Watch request failed (SeatsAlreadyOpenError): {e}")
-        return jsonify({"error": str(e)}), 400 # User trying to watch an open section
+        return jsonify({"error": str(e)}), 400  # User trying to watch an open section
     except AlreadyPendingError as e:
         log.warning(f"Watch request failed (AlreadyPendingError): {e}")
         response_body = {"error": str(e)}
-        if hasattr(e, 'request_id') and e.request_id:
+        if hasattr(e, "request_id") and e.request_id:
             response_body["request_id"] = e.request_id
-        return jsonify(response_body), 409 # Conflict
+        return jsonify(response_body), 409  # Conflict
     except DataNotReadyError as e:
-         log.warning(f"Watch request failed temporarily (DataNotReadyError): {e}")
-         return jsonify({"error": str(e)}), 503 # Service unavailable (server cache not ready)
+        log.warning(f"Watch request failed temporarily (DataNotReadyError): {e}")
+        return jsonify(
+            {"error": str(e)}
+        ), 503  # Service unavailable (server cache not ready)
     except ExternalApiError as e:
-        log.error(f"Watch request failed due to external API issue (ExternalApiError): {e}", exc_info=getattr(e, 'original_exception', False))
+        log.error(
+            f"Watch request failed due to external API issue (ExternalApiError): {e}",
+            exc_info=getattr(e, "original_exception", False),
+        )
         # Provide a slightly more user-friendly message for external issues
-        return jsonify({"error": "Could not complete request due to an issue with the upstream service. Please try again later.", "details": str(e)}), 503
+        return jsonify(
+            {
+                "error": "Could not complete request due to an issue with the upstream service. Please try again later.",
+                "details": str(e),
+            }
+        ), 503
     except DatabaseError as e:
-        log.error(f"Watch request failed due to database issue (DatabaseError): {e}", exc_info=getattr(e, 'original_exception', False))
-        return jsonify({"error": "A database error occurred while processing the request."}), 500
+        log.error(
+            f"Watch request failed due to database issue (DatabaseError): {e}",
+            exc_info=getattr(e, "original_exception", False),
+        )
+        return jsonify(
+            {"error": "A database error occurred while processing the request."}
+        ), 500
     except TimetableCheckerBaseError as e:
         # Catch other custom app errors
         log.error(f"Watch request failed due to application error: {e}", exc_info=True)
-        return jsonify({"error": "An application error occurred.", "details": str(e)}), 500
-    except Exception as e:
+        return jsonify(
+            {"error": "An application error occurred.", "details": str(e)}
+        ), 500
+    except Exception:
         # Catch-all for truly unexpected errors
-        log.exception(f"Unexpected error during /watch request processing") # Use log.exception
+        log.exception(
+            "Unexpected error during /watch request processing"
+        )  # Use log.exception
         return jsonify({"error": "An unexpected internal error occurred."}), 500
 
 
-@app.route('/watch/batch', methods=['POST'])
+@app.route("/watch/batch", methods=["POST"])
 @limiter.limit("10 per hour; 2 per 10 seconds")
 def add_batch_watch_request():
     """
@@ -862,10 +1124,13 @@ def add_batch_watch_request():
     Purpose: Creates multiple watch resources in a single transaction.
     """
     active_client = get_client_or_abort()
-    if isinstance(active_client, tuple): return active_client
+    if isinstance(active_client, tuple):
+        return active_client
 
     if not EMAIL_PASSWORD or not EMAIL_SENDER:
-        log.error("Attempted to add batch watch request, but email sender/password not configured.")
+        log.error(
+            "Attempted to add batch watch request, but email sender/password not configured."
+        )
         return jsonify({"error": "Notification system is not configured."}), 503
 
     if not request.is_json:
@@ -873,9 +1138,13 @@ def add_batch_watch_request():
 
     data = request.get_json()
     required_fields = ["email", "term_id", "course_code", "section_keys"]
-    missing_fields = [field for field in required_fields if field not in data or data[field] is None]
+    missing_fields = [
+        field for field in required_fields if field not in data or data[field] is None
+    ]
     if missing_fields:
-        return jsonify({"error": f"Missing required fields: {', '.join(missing_fields)}"}), 400
+        return jsonify(
+            {"error": f"Missing required fields: {', '.join(missing_fields)}"}
+        ), 400
 
     email = data.get("email")
     term_id = data.get("term_id")
@@ -889,32 +1158,36 @@ def add_batch_watch_request():
         return jsonify({"error": "'section_keys' array cannot be empty."}), 400
 
     if len(section_keys) > 50:
-        return jsonify({"error": f"Batch payload exceeds the maximum of 50 sections."}), 400
+        return jsonify(
+            {"error": "Batch payload exceeds the maximum of 50 sections."}
+        ), 400
 
     if not isinstance(email, str) or not is_valid_email(email):
-         return jsonify({"error": "Invalid 'email' format."}), 400
+        return jsonify({"error": "Invalid 'email' format."}), 400
 
     if not isinstance(term_id, str) or not term_id.isdigit():
-         return jsonify({"error": "Invalid 'term_id' format."}), 400
+        return jsonify({"error": "Invalid 'term_id' format."}), 400
 
     if not isinstance(course_code, str) or not course_code.strip():
-         return jsonify({"error": "Invalid 'course_code' format."}), 400
+        return jsonify({"error": "Invalid 'course_code' format."}), 400
 
-    normalized_course_code = ' '.join(course_code.strip().upper().split())
+    normalized_course_code = " ".join(course_code.strip().upper().split())
 
     try:
         messages, request_ids = active_client.add_batch_course_watch_request(
             email=email.lower(),
             term_id=term_id,
             course_code=normalized_course_code,
-            section_keys=[str(k).strip() for k in section_keys]
+            section_keys=[str(k).strip() for k in section_keys],
         )
 
-        return jsonify({
-            "message": f"Successfully processed {len(request_ids)} sections.",
-            "details": messages,
-            "request_ids": request_ids
-        }), 201
+        return jsonify(
+            {
+                "message": f"Successfully processed {len(request_ids)} sections.",
+                "details": messages,
+                "request_ids": request_ids,
+            }
+        ), 201
 
     except InvalidInputError as e:
         return jsonify({"error": str(e)}), 400
@@ -923,16 +1196,23 @@ def add_batch_watch_request():
     except CourseNotFoundError as e:
         return jsonify({"error": str(e)}), 400
     except ExternalApiError as e:
-        return jsonify({"error": "Could not complete request due to an issue with the upstream service.", "details": str(e)}), 503
-    except DatabaseError as e:
-        return jsonify({"error": "A database error occurred while processing the request."}), 500
-    except Exception as e:
-        log.exception(f"Unexpected error during /watch/batch request processing")
+        return jsonify(
+            {
+                "error": "Could not complete request due to an issue with the upstream service.",
+                "details": str(e),
+            }
+        ), 503
+    except DatabaseError:
+        return jsonify(
+            {"error": "A database error occurred while processing the request."}
+        ), 500
+    except Exception:
+        log.exception("Unexpected error during /watch/batch request processing")
         return jsonify({"error": "An unexpected internal error occurred."}), 500
 
 
 # --- Endpoint for Log Level (Protected) ---
-@app.route('/admin/log/level', methods=['PUT'])
+@app.route("/admin/log/level", methods=["PUT"])
 @require_admin_key
 @limiter.limit("10 per hour")
 def set_log_level():
@@ -959,10 +1239,10 @@ def set_log_level():
         return jsonify({"error": "Invalid request format. JSON payload required."}), 400
 
     data = request.get_json()
-    if not data or 'level' not in data:
+    if not data or "level" not in data:
         return jsonify({"error": "Missing 'level' field in JSON payload."}), 400
 
-    level_name_input = data['level']
+    level_name_input = data["level"]
     if not isinstance(level_name_input, str):
         return jsonify({"error": "'level' field must be a string."}), 400
 
@@ -974,12 +1254,18 @@ def set_log_level():
         # Get valid level names dynamically for the error message
         valid_levels_dict = logging._nameToLevel
         # Sort level names based on their numeric value for a standard order
-        valid_level_names_sorted = sorted(valid_levels_dict.keys(), key=lambda k: valid_levels_dict[k])
+        valid_level_names_sorted = sorted(
+            valid_levels_dict.keys(), key=lambda k: valid_levels_dict[k]
+        )
 
-        log.warning(f"Invalid log level '{level_name_input}' requested by {request.remote_addr} (authenticated)") # Added note
-        return jsonify({
-            "error": f"Invalid log level name: '{level_name_input}'. Valid levels are: {', '.join(valid_level_names_sorted)}"
-        }), 400
+        log.warning(
+            f"Invalid log level '{level_name_input}' requested by {request.remote_addr} (authenticated)"
+        )  # Added note
+        return jsonify(
+            {
+                "error": f"Invalid log level name: '{level_name_input}'. Valid levels are: {', '.join(valid_level_names_sorted)}"
+            }
+        ), 400
     else:
         # Get the numeric level directly from the dictionary
         numeric_level = logging._nameToLevel[level_name_upper]
@@ -992,7 +1278,9 @@ def set_log_level():
         # Use getLevelName() correctly here: numeric level -> string name
         old_root_level_name = logging.getLevelName(root_logger.level)
         root_logger.setLevel(numeric_level)
-        log.info(f"Root logger level changed from {old_root_level_name} to {level_name_upper}.")
+        log.info(
+            f"Root logger level changed from {old_root_level_name} to {level_name_upper}."
+        )
 
         # Change the level of all handlers attached to the root logger
         changed_handlers = []
@@ -1000,7 +1288,9 @@ def set_log_level():
             # Use getLevelName() correctly here: numeric level -> string name
             old_handler_level_name = logging.getLevelName(handler.level)
             handler.setLevel(numeric_level)
-            changed_handlers.append(f"{type(handler).__name__} (from {old_handler_level_name} to {level_name_upper})")
+            changed_handlers.append(
+                f"{type(handler).__name__} (from {old_handler_level_name} to {level_name_upper})"
+            )
 
         if changed_handlers:
             log.info(f"Handler levels changed: {'; '.join(changed_handlers)}")
@@ -1015,17 +1305,24 @@ def set_log_level():
         #     log.info(f"Werkzeug logger level set to {level_name_upper}.")
 
         # Changed log level from warning to info for successful authorized action
-        log.info(f"Logging level dynamically changed to {level_name_upper} by authenticated request from {request.remote_addr}")
+        log.info(
+            f"Logging level dynamically changed to {level_name_upper} by authenticated request from {request.remote_addr}"
+        )
         return jsonify({"message": f"Log level set to {level_name_upper}"}), 200
 
     except Exception as e:
-        log.error(f"Failed to set log level to '{level_name_upper}': {e}", exc_info=True)
-        return jsonify({"error": "An internal error occurred while setting the log level."}), 500
+        log.error(
+            f"Failed to set log level to '{level_name_upper}': {e}", exc_info=True
+        )
+        return jsonify(
+            {"error": "An internal error occurred while setting the log level."}
+        ), 500
 
 
 # --- Course Stats & History Endpoints ---
 
-@app.route('/terms/<string:term_id>/courses/<path:course_code>/stats', methods=['GET'])
+
+@app.route("/terms/<string:term_id>/courses/<path:course_code>/stats", methods=["GET"])
 @limiter.limit("30 per hour; 10 per minute; 2 per second")
 def get_course_stats(term_id, course_code):
     """
@@ -1043,7 +1340,8 @@ def get_course_stats(term_id, course_code):
     Cache: Public, 2 minutes max-age.
     """
     active_client = get_client_or_abort()
-    if isinstance(active_client, tuple): return active_client
+    if isinstance(active_client, tuple):
+        return active_client
 
     if not term_id.isdigit():
         return jsonify({"error": "Invalid term ID format. Must be numeric."}), 400
@@ -1051,42 +1349,59 @@ def get_course_stats(term_id, course_code):
     if not course_code or not re.match(r"^[A-Za-z0-9\s\-]+$", course_code.strip()):
         return jsonify({"error": "Invalid course code format."}), 400
 
-    normalized_course_code = ' '.join(course_code.strip().upper().split())
+    normalized_course_code = " ".join(course_code.strip().upper().split())
 
     # Validate hours parameter
-    hours = request.args.get('hours', 72, type=int)
+    hours = request.args.get("hours", 72, type=int)
     hours = max(1, min(hours, 336))  # Clamp to 1-336 (max 2 weeks)
 
     try:
         # Validate term and course existence
-        available_terms = {t['id'] for t in active_client.get_terms()}
+        available_terms = {t["id"] for t in active_client.get_terms()}
         if term_id not in available_terms:
             return jsonify({"error": f"Term ID '{term_id}' not found."}), 404
 
         courses_in_term = active_client.get_courses(term_id)
         if courses_in_term is None:
-            return jsonify({"error": f"Course list for term '{term_id}' not ready."}), 503
+            return jsonify(
+                {"error": f"Course list for term '{term_id}' not ready."}
+            ), 503
         if normalized_course_code not in courses_in_term:
-            return jsonify({"error": f"Course '{normalized_course_code}' not found in term '{term_id}'."}), 404
+            return jsonify(
+                {
+                    "error": f"Course '{normalized_course_code}' not found in term '{term_id}'."
+                }
+            ), 404
 
         # Get stats from storage
-        request_stats = active_client.storage.get_course_request_stats(term_id, normalized_course_code)
-        sections_data = active_client.storage.get_course_sections_with_history(term_id, normalized_course_code, hours)
+        request_stats = active_client.storage.get_course_request_stats(
+            term_id, normalized_course_code
+        )
+        sections_data = active_client.storage.get_course_sections_with_history(
+            term_id, normalized_course_code, hours
+        )
 
-        response = jsonify({
-            "request_stats": request_stats,
-            "sections": sections_data,
-            "hours": hours,
-        })
-        response.headers['Cache-Control'] = 'public, max-age=120'
+        response = jsonify(
+            {
+                "request_stats": request_stats,
+                "sections": sections_data,
+                "hours": hours,
+            }
+        )
+        response.headers["Cache-Control"] = "public, max-age=120"
         return response, 200
 
     except Exception as e:
         log.error(f"Error in course stats endpoint: {e}", exc_info=True)
-        return jsonify({"error": "An internal error occurred retrieving course statistics."}), 500
+        return jsonify(
+            {"error": "An internal error occurred retrieving course statistics."}
+        ), 500
 
 
-@app.route('/terms/<string:term_id>/courses/<path:course_code>/sections/<string:section_key>/history', methods=['GET'])
+@app.route(
+    "/terms/<string:term_id>/courses/<path:course_code>/sections/<string:section_key>/history",
+    methods=["GET"],
+)
 @limiter.limit("60 per hour; 15 per minute; 2 per second")
 def get_section_history(term_id, course_code, section_key):
     """
@@ -1102,7 +1417,8 @@ def get_section_history(term_id, course_code, section_key):
     Cache: Public, 1 minute max-age.
     """
     active_client = get_client_or_abort()
-    if isinstance(active_client, tuple): return active_client
+    if isinstance(active_client, tuple):
+        return active_client
 
     if not term_id.isdigit():
         return jsonify({"error": "Invalid term ID format. Must be numeric."}), 400
@@ -1113,50 +1429,61 @@ def get_section_history(term_id, course_code, section_key):
     if not section_key or not section_key.strip():
         return jsonify({"error": "Invalid section key."}), 400
 
-    normalized_course_code = ' '.join(course_code.strip().upper().split())
+    normalized_course_code = " ".join(course_code.strip().upper().split())
     section_key = section_key.strip()
 
-    hours = request.args.get('hours', 72, type=int)
+    hours = request.args.get("hours", 72, type=int)
     hours = max(1, min(hours, 336))
 
     try:
-        history = active_client.storage.get_section_history(term_id, normalized_course_code, section_key, hours)
-        stats = active_client.storage.get_section_stats(term_id, normalized_course_code, section_key, hours)
+        history = active_client.storage.get_section_history(
+            term_id, normalized_course_code, section_key, hours
+        )
+        stats = active_client.storage.get_section_stats(
+            term_id, normalized_course_code, section_key, hours
+        )
 
-        response = jsonify({
-            "history": history,
-            "stats": stats,
-            "hours": hours,
-        })
-        response.headers['Cache-Control'] = 'public, max-age=60'
+        response = jsonify(
+            {
+                "history": history,
+                "stats": stats,
+                "hours": hours,
+            }
+        )
+        response.headers["Cache-Control"] = "public, max-age=60"
         return response, 200
 
     except Exception as e:
         log.error(f"Error in section history endpoint: {e}", exc_info=True)
-        return jsonify({"error": "An internal error occurred retrieving section history."}), 500
+        return jsonify(
+            {"error": "An internal error occurred retrieving section history."}
+        ), 500
 
 
 # --- Authentication & User Management Endpoints ---
 
-@app.route('/auth/status', methods=['GET'])
+
+@app.route("/auth/status", methods=["GET"])
 @require_jwt_auth
 def auth_status():
     """Checks if the user is authenticated and returns their email."""
     return jsonify({"email": g.user_email}), 200
 
-@app.route('/auth/request', methods=['POST'])
+
+@app.route("/auth/request", methods=["POST"])
 @limiter.limit("5 per hour")
 def auth_request():
     """Generates an OTP/Magic Link and emails it to the user."""
     active_client = get_client_or_abort()
-    if isinstance(active_client, tuple): return active_client
+    if isinstance(active_client, tuple):
+        return active_client
 
     if not request.is_json:
         return jsonify({"error": "Invalid request format."}), 400
 
-    email = request.json.get('email')
+    email = request.json.get("email")
     if not email or not isinstance(email, str):
-        log.warning(f"Auth request failed: Missing or non-string email.")
+        log.warning("Auth request failed: Missing or non-string email.")
         return jsonify({"error": "Invalid email address."}), 400
     # Sanitize: strip whitespace and normalize case before validation
     email = email.strip().lower()
@@ -1165,45 +1492,60 @@ def auth_request():
         return jsonify({"error": "Invalid email address."}), 400
 
     # Generate 6-char auth code using cryptographically secure randomness
-    auth_code = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6))
+    auth_code = "".join(
+        secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6)
+    )
     auth_code = f"{auth_code[:3]}-{auth_code[3:]}"
 
-    if active_client.storage.create_auth_token(email, auth_code, AUTH_TOKEN_EXPIRY_MINUTES):
-        from .email_utils import send_auth_email
+    if active_client.storage.create_auth_token(
+        email, auth_code, AUTH_TOKEN_EXPIRY_MINUTES
+    ):
         import urllib.parse
+
+        from .email_utils import send_auth_email
+
         encoded_email = urllib.parse.quote(email)
         magic_link = f"{UNIVERSEATY_URL}/?token={auth_code}&email={encoded_email}"
         # Send email in background to not block response
-        threading.Thread(target=send_auth_email, args=(email, auth_code, magic_link), daemon=True).start()
+        threading.Thread(
+            target=send_auth_email, args=(email, auth_code, magic_link), daemon=True
+        ).start()
         return jsonify({"message": "Auth code sent."}), 200
     return jsonify({"error": "Failed to generate auth token."}), 500
 
-@app.route('/auth/verify', methods=['POST'])
+
+@app.route("/auth/verify", methods=["POST"])
 @limiter.limit("10 per hour")
 def auth_verify():
     """Verifies the OTP/Magic Link token and sets a JWT cookie."""
     active_client = get_client_or_abort()
-    if isinstance(active_client, tuple): return active_client
+    if isinstance(active_client, tuple):
+        return active_client
 
     if not request.is_json:
         return jsonify({"error": "Invalid request format."}), 400
 
-    email = request.json.get('email')
-    token = request.json.get('token')
+    email = request.json.get("email")
+    token = request.json.get("token")
 
-    if not email or not token or not isinstance(email, str) or not isinstance(token, str):
+    if (
+        not email
+        or not token
+        or not isinstance(email, str)
+        or not isinstance(token, str)
+    ):
         return jsonify({"error": "Invalid email or token."}), 400
 
     # Sanitize inputs: strip whitespace and normalize before verification
     email = email.strip().lower()
     # Normalize token: strip whitespace, uppercase, remove accidental internal spaces
-    token = token.strip().upper().replace(' ', '')
+    token = token.strip().upper().replace(" ", "")
     # If user omitted the dash (e.g. pasted 'ABCXYZ' instead of 'ABC-XYZ'), reformat to stored XXX-XXX format
-    if len(token) == 6 and re.match(r'^[A-Z0-9]{6}$', token):
+    if len(token) == 6 and re.match(r"^[A-Z0-9]{6}$", token):
         token = f"{token[:3]}-{token[3:]}"
     # Reject tokens that don't match the expected XXX-XXX format
-    if not re.match(r'^[A-Z0-9]{3}-[A-Z0-9]{3}$', token):
-        log.warning(f"Auth verify failed: Token format invalid after normalization.")
+    if not re.match(r"^[A-Z0-9]{3}-[A-Z0-9]{3}$", token):
+        log.warning("Auth verify failed: Token format invalid after normalization.")
         return jsonify({"error": "Invalid or expired token."}), 401
 
     if len(email) > MAX_EMAIL_LENGTH or not email:
@@ -1212,53 +1554,61 @@ def auth_verify():
     if active_client.storage.verify_auth_token(email, token):
         # Create JWT
         payload = {
-            'sub': email.lower(),
-            'iat': datetime.now(timezone.utc),
-            'exp': datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRY_HOURS)
+            "sub": email.lower(),
+            "iat": datetime.now(UTC),
+            "exp": datetime.now(UTC) + timedelta(hours=JWT_EXPIRY_HOURS),
         }
-        jwt_token = jwt.encode(payload, JWT_SECRET_KEY, algorithm='HS256')
+        jwt_token = jwt.encode(payload, JWT_SECRET_KEY, algorithm="HS256")
 
         response = jsonify({"message": "Authenticated successfully."})
         # Set HTTPOnly cookie
         response.set_cookie(
-            'session',
+            "session",
             jwt_token,
             httponly=True,
             secure=True,
-            samesite='Strict',
-            max_age=JWT_EXPIRY_HOURS * 3600
+            samesite="Strict",
+            max_age=JWT_EXPIRY_HOURS * 3600,
         )
         return response, 200
 
     return jsonify({"error": "Invalid or expired token."}), 401
 
-@app.route('/auth/logout', methods=['POST'])
+
+@app.route("/auth/logout", methods=["POST"])
 def auth_logout():
     """Clears the session cookie."""
     response = jsonify({"message": "Logged out."})
-    response.set_cookie('session', '', expires=0, httponly=True, secure=True, samesite='Strict')
+    response.set_cookie(
+        "session", "", expires=0, httponly=True, secure=True, samesite="Strict"
+    )
     return response, 200
 
-@app.route('/user/watches', methods=['GET'])
+
+@app.route("/user/watches", methods=["GET"])
 @require_jwt_auth
 def get_user_watches():
     """Returns all watch requests for the authenticated user."""
     active_client = get_client_or_abort()
-    if isinstance(active_client, tuple): return active_client
+    if isinstance(active_client, tuple):
+        return active_client
 
     watches = active_client.storage.get_requests_by_email(g.user_email)
     return jsonify(watches), 200
 
-@app.route('/user/watches/<int:request_id>', methods=['DELETE'])
+
+@app.route("/user/watches/<int:request_id>", methods=["DELETE"])
 @require_jwt_auth
 def cancel_user_watch(request_id):
     """Cancels a specific watch request if it belongs to the user."""
     active_client = get_client_or_abort()
-    if isinstance(active_client, tuple): return active_client
+    if isinstance(active_client, tuple):
+        return active_client
 
     if active_client.storage.cancel_request(g.user_email, request_id):
         return jsonify({"message": "Watch request cancelled."}), 200
     return jsonify({"error": "Failed to cancel request or request not found."}), 404
+
 
 # --- Error Handlers ---
 """
@@ -1269,98 +1619,123 @@ in logging errors appropriately on the server side. Caching headers for errors
 are set in the `add_caching_headers` handler.
 """
 
+
 @app.errorhandler(400)
 def handle_bad_request(error):
     """Handles 400 Bad Request errors, returning specific JSON if provided, else generic."""
-    response = getattr(error, 'response', None)
+    response = getattr(error, "response", None)
     # Check if the response from a view function (like jsonify({...}), 400) is already a Flask response object
     if isinstance(response, app.response_class):
-        return response # Pass through the already formatted JSON response
+        return response  # Pass through the already formatted JSON response
     # Otherwise, create a generic one based on the error description
-    description = getattr(error, 'description', 'Bad Request')
+    description = getattr(error, "description", "Bad Request")
     log.warning(f"Returning 400 Bad Request: {description}")
     return jsonify(error=description), 400
+
 
 @app.errorhandler(401)
 def handle_unauthorized(error):
     """Handles 401 Unauthorized errors, typically from missing auth."""
-    response = getattr(error, 'response', None)
+    response = getattr(error, "response", None)
     if isinstance(response, app.response_class):
         return response
-    description = getattr(error, 'description', 'Unauthorized')
+    description = getattr(error, "description", "Unauthorized")
     log.warning(f"Returning 401 Unauthorized for {request.path}: {description}")
     return jsonify(error=description), 401
+
 
 @app.errorhandler(403)
 def handle_forbidden(error):
     """Handles 403 Forbidden errors, typically from invalid auth."""
-    response = getattr(error, 'response', None)
+    response = getattr(error, "response", None)
     if isinstance(response, app.response_class):
         return response
-    description = getattr(error, 'description', 'Forbidden')
+    description = getattr(error, "description", "Forbidden")
     log.warning(f"Returning 403 Forbidden for {request.path}: {description}")
     return jsonify(error=description), 403
+
 
 @app.errorhandler(404)
 def handle_not_found(error):
     """Handles 404 Not Found errors, returning specific JSON if provided, else generic."""
-    response = getattr(error, 'response', None)
+    response = getattr(error, "response", None)
     if isinstance(response, app.response_class):
         return response
-    description = getattr(error, 'description', 'The requested resource was not found.')
-    remote_addr = request.remote_addr if request else 'Unknown IP'
-    log.warning(f"Returning 404 Not Found for {request.path} from {remote_addr}: {description}")
+    description = getattr(error, "description", "The requested resource was not found.")
+    remote_addr = request.remote_addr if request else "Unknown IP"
+    log.warning(
+        f"Returning 404 Not Found for {request.path} from {remote_addr}: {description}"
+    )
     return jsonify(error=description), 404
+
 
 @app.errorhandler(405)
 def handle_method_not_allowed(error):
     """Handles 405 Method Not Allowed errors, indicating allowed methods if available."""
     # Flask automatically sets the 'Allow' header on the response object in the error
-    response = getattr(error, 'response', None)
-    allowed_methods = response.headers.get('Allow') if response else None
-    message = "Method Not Allowed." + (f" Allowed methods: {allowed_methods}" if allowed_methods else "")
+    response = getattr(error, "response", None)
+    allowed_methods = response.headers.get("Allow") if response else None
+    message = "Method Not Allowed." + (
+        f" Allowed methods: {allowed_methods}" if allowed_methods else ""
+    )
     log.warning(f"Returning 405 Method Not Allowed for {request.method} {request.path}")
     return jsonify(error=message), 405
+
 
 @app.errorhandler(409)
 def handle_conflict(error):
     """Handles 409 Conflict errors, returning specific JSON if provided, else generic."""
-    response = getattr(error, 'response', None)
+    response = getattr(error, "response", None)
     if isinstance(response, app.response_class):
-        return response # Pass through potentially more detailed JSON from view
-    description = getattr(error, 'description', 'Conflict')
+        return response  # Pass through potentially more detailed JSON from view
+    description = getattr(error, "description", "Conflict")
     log.warning(f"Returning 409 Conflict for {request.path}: {description}")
     # Check if description is already a dict (e.g., from abort(409, description={...}))
     if isinstance(description, dict):
         return jsonify(description), 409
     return jsonify(error=description), 409
 
+
 @app.errorhandler(429)
 def handle_rate_limit(error):
     """Handles 429 Too Many Requests errors from Flask-Limiter."""
-    log.warning(f"Rate limit exceeded for {request.remote_addr} ({request.path}): {error.description}")
+    log.warning(
+        f"Rate limit exceeded for {request.remote_addr} ({request.path}): {error.description}"
+    )
     return jsonify(error=f"Rate limit exceeded: {error.description}"), 429
+
 
 @app.errorhandler(500)
 def handle_internal_server_error(error):
     """Handles 500 Internal Server Error, logging the error and returning a generic message."""
     # Note: The actual exception might be logged by @app.teardown_request as well.
     # This ensures a generic JSON response is sent.
-    log.error(f"Returning 500 Internal Server Error for {request.path}: {error}", exc_info=True) # Ensure traceback is logged here too
-    return jsonify(error="An unexpected internal error occurred. Please try again later."), 500
+    log.error(
+        f"Returning 500 Internal Server Error for {request.path}: {error}",
+        exc_info=True,
+    )  # Ensure traceback is logged here too
+    return jsonify(
+        error="An unexpected internal error occurred. Please try again later."
+    ), 500
+
 
 @app.errorhandler(503)
 def handle_service_unavailable(error):
     """Handles 503 Service Unavailable errors, returning specific JSON if provided, else generic."""
-    response = getattr(error, 'response', None)
+    response = getattr(error, "response", None)
     if isinstance(response, app.response_class):
-        return response # Pass through potentially more detailed JSON from view
-    description = getattr(error, 'description', 'The service is temporarily unavailable. Please try again later.')
+        return response  # Pass through potentially more detailed JSON from view
+    description = getattr(
+        error,
+        "description",
+        "The service is temporarily unavailable. Please try again later.",
+    )
     log.error(f"Returning 503 Service Unavailable for {request.path}: {description}")
     # Check if description is already a dict
     if isinstance(description, dict):
         return jsonify(description), 503
     return jsonify(error=description), 503
+
 
 # Catch-all handler for any otherwise unhandled exceptions
 @app.errorhandler(Exception)
@@ -1370,13 +1745,17 @@ def handle_generic_exception(e):
     # Check if it's a werkzeug HTTP exception, which might have already been handled
     # or should be handled by a more specific handler.
     from werkzeug.exceptions import HTTPException
+
     if isinstance(e, HTTPException):
         # If it's an HTTP exception we haven't explicitly handled (like 401/403 now handled above, or others),
         # re-raise it so Flask can use its default handler or the most specific matching handler.
         raise e
 
     # Log any non-HTTP exception that reached here as critical
-    log.critical(f"Unhandled Exception caught by generic handler for {request.path}: {e}", exc_info=True) # Log as critical
+    log.critical(
+        f"Unhandled Exception caught by generic handler for {request.path}: {e}",
+        exc_info=True,
+    )  # Log as critical
     return jsonify(error="An unexpected error occurred."), 500
 
 
@@ -1389,9 +1768,11 @@ though most functionality will be degraded).
 Starts the Flask development server. For production deployments, a proper WSGI server
 like Gunicorn or uWSGI should be used instead of `app.run()`.
 """
-if __name__ == '__main__':
+if __name__ == "__main__":
     if client is None:
-        log.critical("Flask app starting, BUT McMasterTimetableClient FAILED to initialize. API functionality will be severely limited.")
+        log.critical(
+            "Flask app starting, BUT McMasterTimetableClient FAILED to initialize. API functionality will be severely limited."
+        )
         # The server will start, but endpoints relying on the client will return 503.
 
     log.info("Starting Flask development server on host 0.0.0.0, port 5000...")
@@ -1400,7 +1781,7 @@ if __name__ == '__main__':
     # Example using Gunicorn: gunicorn --chdir src -w 4 -b 0.0.0.0:5000 timetable_checker:app
     try:
         # This direct app.run() is generally only for local development testing
-        app.run(host='0.0.0.0', port=5000, debug=False)
+        app.run(host="0.0.0.0", port=5000, debug=False)
     except Exception as e:
         log.critical(f"Flask server failed to start or crashed: {e}", exc_info=True)
     finally:

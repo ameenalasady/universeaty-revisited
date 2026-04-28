@@ -6,26 +6,14 @@ export const Footer: React.FC = () => {
   return (
     <footer className="mt-auto pt-8 pb-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-muted-foreground border-t border-border/50">
       {/* Ko-fi Link */}
-      <Button
-        variant="link"
-        asChild
-        className="text-muted-foreground p-0 h-auto"
-      >
-        <a
-          href="https://ko-fi.com/ameenalasady"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
+      <Button variant="link" asChild className="text-muted-foreground p-0 h-auto">
+        <a href="https://ko-fi.com/ameenalasady" target="_blank" rel="noopener noreferrer">
           <Coffee className="mr-1.5 h-4 w-4" />
           Support on Ko-fi
         </a>
       </Button>
       {/* GitHub Link */}
-      <Button
-        variant="link"
-        asChild
-        className="text-muted-foreground p-0 h-auto"
-      >
+      <Button variant="link" asChild className="text-muted-foreground p-0 h-auto">
         <a
           href="https://github.com/ameenalasady/universeaty-revisited"
           target="_blank"
@@ -36,11 +24,7 @@ export const Footer: React.FC = () => {
         </a>
       </Button>
       {/* Status Page Link */}
-      <Button
-        variant="link"
-        asChild
-        className="text-muted-foreground p-0 h-auto"
-      >
+      <Button variant="link" asChild className="text-muted-foreground p-0 h-auto">
         <a
           href="https://stats.uptimerobot.com/CmsUh6hffi"
           target="_blank"

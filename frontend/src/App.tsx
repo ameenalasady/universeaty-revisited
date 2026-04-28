@@ -1,12 +1,6 @@
 import { useState, useEffect } from "react";
 import { Toaster } from "sonner";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -24,28 +18,28 @@ import { CourseSelectionProvider } from "@/contexts/CourseSelectionContext";
  * Main application shell. Wraps content with context providers.
  */
 function App() {
-  const [view, setView] = useState<'home' | 'manage'>(() => {
+  const [view, setView] = useState<"home" | "manage">(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.has('token') || urlParams.get('view') === 'manage') {
-        return 'manage';
+    if (urlParams.has("token") || urlParams.get("view") === "manage") {
+      return "manage";
     }
-    return 'home';
+    return "home";
   });
 
   // Sync URL with view state
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    if (view === 'manage') {
-      if (urlParams.get('view') !== 'manage') {
-        urlParams.set('view', 'manage');
-        window.history.replaceState({}, '', `${window.location.pathname}?${urlParams.toString()}`);
+    if (view === "manage") {
+      if (urlParams.get("view") !== "manage") {
+        urlParams.set("view", "manage");
+        window.history.replaceState({}, "", `${window.location.pathname}?${urlParams.toString()}`);
       }
     } else {
-      if (urlParams.has('view')) {
-        urlParams.delete('view');
+      if (urlParams.has("view")) {
+        urlParams.delete("view");
         const search = urlParams.toString();
-        const newUrl = window.location.pathname + (search ? `?${search}` : '');
-        window.history.replaceState({}, '', newUrl);
+        const newUrl = window.location.pathname + (search ? `?${search}` : "");
+        window.history.replaceState({}, "", newUrl);
       }
     }
   }, [view]);
@@ -59,7 +53,7 @@ function App() {
           <Separator className="mb-2" />
 
           <main className="flex-grow">
-            {view === 'home' ? (
+            {view === "home" ? (
               <>
                 <Card className="my-6 border-border/40 bg-card/30 backdrop-blur-sm">
                   <CardHeader>

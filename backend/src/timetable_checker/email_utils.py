@@ -1,27 +1,33 @@
-import smtplib
-import ssl
+import logging
 import os
 import re
-import logging
+import smtplib
+import ssl
+from datetime import UTC, datetime
 from email.message import EmailMessage
-from datetime import datetime, timezone
-from jinja2 import Environment, FileSystemLoader, select_autoescape, TemplateNotFound, TemplateSyntaxError
 
-from .exceptions import NotificationSystemError, EmailRecipientInvalidError
+from jinja2 import (
+    Environment,
+    FileSystemLoader,
+    TemplateNotFound,
+    TemplateSyntaxError,
+    select_autoescape,
+)
 
 # --- Import Configuration First ---
 from .config import (
-    EMAIL_SENDER,
     EMAIL_PASSWORD,
+    EMAIL_SENDER,
     TEMPLATE_DIR,
     TEMPLATE_FILENAME,
 )
+from .exceptions import EmailRecipientInvalidError
 
 # Get a logger specific to this module
 log = logging.getLogger(__name__)
 
 # --- Setup Jinja2 Environment ---
-jinja_env = None # Initialize to None
+jinja_env = None  # Initialize to None
 try:
     # FileSystemLoader looks for templates in the specified directory
     # autoescape helps prevent XSS if you were inserting user-generated content
@@ -29,16 +35,19 @@ try:
     if os.path.isdir(TEMPLATE_DIR):
         jinja_env = Environment(
             loader=FileSystemLoader(TEMPLATE_DIR),
-            autoescape=select_autoescape(['html', 'xml']) # Good practice
+            autoescape=select_autoescape(["html", "xml"]),  # Good practice
         )
         log.info(f"Jinja2 Environment initialized. Template directory: {TEMPLATE_DIR}")
     else:
         log.error(f"Jinja2 template directory not found: {TEMPLATE_DIR}")
 
-except Exception as e:
-    log.exception("FATAL: Failed to initialize Jinja2 Environment.") # Log full traceback
+except Exception:
+    log.exception(
+        "FATAL: Failed to initialize Jinja2 Environment."
+    )  # Log full traceback
 
 # --- Email Content Generation ---
+
 
 def create_notification_email(
     course_code: str,
@@ -47,7 +56,7 @@ def create_notification_email(
     section_display: str,
     section_key: str,
     open_seats: int,
-    request_id: int
+    request_id: int,
 ) -> tuple[str, str] | None:
     """
     Generates the subject and HTML body for the course availability notification email
@@ -59,12 +68,12 @@ def create_notification_email(
     Returns:
         A tuple containing (subject, html_body) if successful, otherwise None.
     """
-    if not jinja_env: # Check if Jinja2 setup failed earlier
-         log.error("Cannot generate email content: Jinja2 environment not initialized.")
-         return None
+    if not jinja_env:  # Check if Jinja2 setup failed earlier
+        log.error("Cannot generate email content: Jinja2 environment not initialized.")
+        return None
 
     subject = f"Universeaty Course Alert: Seats Open in {course_code}"
-    check_time_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+    check_time_str = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     # --- Prepare Context Data for Jinja2 ---
 
@@ -101,7 +110,9 @@ def create_notification_email(
         log.error(f"Jinja2 template '{TEMPLATE_FILENAME}' not found in {TEMPLATE_DIR}")
         return None
     except TemplateSyntaxError as e:
-        log.error(f"Jinja2 template syntax error in '{TEMPLATE_FILENAME}': {e} (Line: {e.lineno})")
+        log.error(
+            f"Jinja2 template syntax error in '{TEMPLATE_FILENAME}': {e} (Line: {e.lineno})"
+        )
         return None
     except Exception as e:
         # Catch other potential rendering errors (e.g., UndefinedError)
@@ -119,7 +130,7 @@ def create_auth_email(auth_code: str, magic_link_url: str) -> tuple[str, str] | 
     context = {
         "auth_code": auth_code,
         "magic_link_url": magic_link_url,
-        "current_year": datetime.now(timezone.utc).year,
+        "current_year": datetime.now(UTC).year,
     }
 
     try:
@@ -130,12 +141,13 @@ def create_auth_email(auth_code: str, magic_link_url: str) -> tuple[str, str] | 
         log.exception(f"Error rendering Jinja2 template 'auth_email.html': {e}")
         return None
 
+
 def send_auth_email(email_address: str, auth_code: str, magic_link_url: str) -> bool:
     """Sends the authentication email with OTP and Magic Link."""
     email_content = create_auth_email(auth_code, magic_link_url)
     if not email_content:
         return False
-    
+
     subject, html_body = email_content
     return send_email(email_address, subject, html_body)
 
@@ -148,82 +160,144 @@ def send_email(email_address: str, subject: str, html_body: str) -> bool:
     Returns False for other transient/non-recipient-permanent send failures.
     """
     if not EMAIL_PASSWORD or not EMAIL_SENDER:
-        log.error("Email sender or password not configured (via config). Cannot send email.")
+        log.error(
+            "Email sender or password not configured (via config). Cannot send email."
+        )
         return False
     # Consistent with api.py
-    if not re.match(r"^[a-zA-Z0-9._%+-]+@(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$", email_address):
-        log.error(f"Invalid recipient email format passed to send_email: {email_address}")
+    if not re.match(
+        r"^[a-zA-Z0-9._%+-]+@(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$",
+        email_address,
+    ):
+        log.error(
+            f"Invalid recipient email format passed to send_email: {email_address}"
+        )
         # This ideally shouldn't happen if API validation is working.
         # We could raise EmailRecipientInvalidError here too, but the SMTP check is more definitive.
-        raise EmailRecipientInvalidError(email_address, "Locally identified as invalid format before SMTP.")
+        raise EmailRecipientInvalidError(
+            email_address, "Locally identified as invalid format before SMTP."
+        )
     if not html_body:
-        log.error(f"Cannot send email to {email_address}, HTML body is empty (template rendering failed?).")
+        log.error(
+            f"Cannot send email to {email_address}, HTML body is empty (template rendering failed?)."
+        )
         return False
 
     em = EmailMessage()
-    em['From'] = f"Universeaty Alerts <{EMAIL_SENDER}>"
-    em['To'] = email_address
-    em['Subject'] = subject
-    em.add_alternative(html_body, subtype='html')
+    em["From"] = f"Universeaty Alerts <{EMAIL_SENDER}>"
+    em["To"] = email_address
+    em["Subject"] = subject
+    em.add_alternative(html_body, subtype="html")
 
     context = ssl.create_default_context()
 
     try:
-        smtp_server = 'smtp.gmail.com'
+        smtp_server = "smtp.gmail.com"
         smtp_port = 465
         with smtplib.SMTP_SSL(smtp_server, smtp_port, context=context) as smtp:
             smtp.login(EMAIL_SENDER, EMAIL_PASSWORD)
             smtp.sendmail(EMAIL_SENDER, email_address, em.as_string())
-        log.info(f"HTML Email successfully sent to {email_address} with subject '{subject}'")
+        log.info(
+            f"HTML Email successfully sent to {email_address} with subject '{subject}'"
+        )
         return True
-    except smtplib.SMTPAuthenticationError as e:
-        log.error(f"SMTP Authentication Error for {EMAIL_SENDER}. Check email/password (App Password?).")
+    except smtplib.SMTPAuthenticationError:
+        log.error(
+            f"SMTP Authentication Error for {EMAIL_SENDER}. Check email/password (App Password?)."
+        )
         # This is a system-level issue, not recipient-specific.
         # raise NotificationSystemError("SMTP Authentication Failed", original_exception=e) # Option
-        return False # Let client retry this request, hoping auth gets fixed.
+        return False  # Let client retry this request, hoping auth gets fixed.
     except smtplib.SMTPRecipientsRefused as e:
         # e.recipients is a dict: {recipient: (code, msg_bytes)}
         error_for_target_recipient = e.recipients.get(email_address)
         if error_for_target_recipient:
             code, msg_bytes = error_for_target_recipient
             # Clean the message string here by replacing newlines and stripping whitespace
-            msg_str = msg_bytes.decode('utf-8', errors='replace').replace('\n', ' ').strip()
-            if 500 <= code < 600: # 5xx codes are permanent errors
-                log.error(f"Permanent SMTP error {code} (RecipientsRefused) for recipient {email_address}: {msg_str}")
+            msg_str = (
+                msg_bytes.decode("utf-8", errors="replace").replace("\n", " ").strip()
+            )
+            if 500 <= code < 600:  # 5xx codes are permanent errors
+                log.error(
+                    f"Permanent SMTP error {code} (RecipientsRefused) for recipient {email_address}: {msg_str}"
+                )
                 # Pass the combined code and cleaned message string
-                raise EmailRecipientInvalidError(email_address, f"{code} {msg_str}", original_exception=e) from e
-            else: # Non-permanent error for our recipient
-                log.warning(f"SMTP error {code} (RecipientsRefused) for recipient {email_address}: {msg_str}. Will retry.")
-        else: # Error occurred but not for our specific recipient
-            log.error(f"SMTPRecipientsRefused for {email_address}, but target not in errors: {e.recipients}")
+                raise EmailRecipientInvalidError(
+                    email_address, f"{code} {msg_str}", original_exception=e
+                ) from e
+            else:  # Non-permanent error for our recipient
+                log.warning(
+                    f"SMTP error {code} (RecipientsRefused) for recipient {email_address}: {msg_str}. Will retry."
+                )
+        else:  # Error occurred but not for our specific recipient
+            log.error(
+                f"SMTPRecipientsRefused for {email_address}, but target not in errors: {e.recipients}"
+            )
         return False
     except smtplib.SMTPSenderRefused as e:
         # Clean the message string here by replacing newlines and stripping whitespace
-        msg_str = (e.smtp_error.decode('utf-8', errors='replace') if isinstance(e.smtp_error, bytes) else str(e.smtp_error)).replace('\n', ' ').strip()
-        log.error(f"SMTP Sender {e.sender} refused with code {e.smtp_code}: {msg_str}. System issue, request will retry.")
+        msg_str = (
+            (
+                e.smtp_error.decode("utf-8", errors="replace")
+                if isinstance(e.smtp_error, bytes)
+                else str(e.smtp_error)
+            )
+            .replace("\n", " ")
+            .strip()
+        )
+        log.error(
+            f"SMTP Sender {e.sender} refused with code {e.smtp_code}: {msg_str}. System issue, request will retry."
+        )
         # raise NotificationSystemError(f"Sender {e.sender} refused: {e.smtp_code} {msg_str}", original_exception=e) # Option
         return False
     except smtplib.SMTPDataError as e:
         # Problem transmitting message data. e.smtp_code, e.smtp_error
         # Clean the message string here by replacing newlines and stripping whitespace
-        msg_str = (e.smtp_error.decode('utf-8', errors='replace') if isinstance(e.smtp_error, bytes) else str(e.smtp_error)).replace('\n', ' ').strip()
-        if 500 <= e.smtp_code < 600: # Permanent error
+        msg_str = (
+            (
+                e.smtp_error.decode("utf-8", errors="replace")
+                if isinstance(e.smtp_error, bytes)
+                else str(e.smtp_error)
+            )
+            .replace("\n", " ")
+            .strip()
+        )
+        if 500 <= e.smtp_code < 600:  # Permanent error
             # Check if this is the "553 5.1.3 The recipient address..." error or similar.
             # Common codes: 550 (User unknown), 553 (Address syntax / invalid address)
-            if e.smtp_code in [550, 553] or \
-               any(keyword in msg_str.lower() for keyword in ["recipient", "address", "rfc 5321", "user unknown", "no such user", "mailbox unavailable"]):
-                log.error(f"Permanent SMTP data error {e.smtp_code} likely due to invalid recipient {email_address}: {msg_str}")
+            if e.smtp_code in [550, 553] or any(
+                keyword in msg_str.lower()
+                for keyword in [
+                    "recipient",
+                    "address",
+                    "rfc 5321",
+                    "user unknown",
+                    "no such user",
+                    "mailbox unavailable",
+                ]
+            ):
+                log.error(
+                    f"Permanent SMTP data error {e.smtp_code} likely due to invalid recipient {email_address}: {msg_str}"
+                )
                 # Pass the combined code and cleaned message string
-                raise EmailRecipientInvalidError(email_address, f"{e.smtp_code} {msg_str}", original_exception=e) from e
+                raise EmailRecipientInvalidError(
+                    email_address, f"{e.smtp_code} {msg_str}", original_exception=e
+                ) from e
             else:
-                 # Other permanent data error (e.g., message rejected as spam, policy violation)
-                log.error(f"Permanent SMTP data error {e.smtp_code} sending to {email_address}: {msg_str}. Request will remain pending for retry.")
-        else: # Non-permanent data error (e.g., 4xx codes)
-            log.warning(f"Temporary SMTP data error {e.smtp_code} sending to {email_address}: {msg_str}. Will retry.")
-        return False # Default to retry unless EmailRecipientInvalidError was raised
-    except smtplib.SMTPException as e: # Catch-all for other smtplib errors
+                # Other permanent data error (e.g., message rejected as spam, policy violation)
+                log.error(
+                    f"Permanent SMTP data error {e.smtp_code} sending to {email_address}: {msg_str}. Request will remain pending for retry."
+                )
+        else:  # Non-permanent data error (e.g., 4xx codes)
+            log.warning(
+                f"Temporary SMTP data error {e.smtp_code} sending to {email_address}: {msg_str}. Will retry."
+            )
+        return False  # Default to retry unless EmailRecipientInvalidError was raised
+    except smtplib.SMTPException as e:  # Catch-all for other smtplib errors
         log.error(f"Generic SMTPException sending email to {email_address}: {e}")
         return False
-    except Exception as e: # Non-SMTP exceptions (network issues, etc.)
-        log.exception(f"An unexpected non-SMTP error occurred during email sending to {email_address}: {e}")
+    except Exception as e:  # Non-SMTP exceptions (network issues, etc.)
+        log.exception(
+            f"An unexpected non-SMTP error occurred during email sending to {email_address}: {e}"
+        )
         return False

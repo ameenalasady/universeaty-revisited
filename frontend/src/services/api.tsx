@@ -22,45 +22,45 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
  * - WatchResponse: Defines the expected structure of the response after adding a watch request (can contain a success message or an error).
  */
 export interface Term {
-    id: string;
-    name: string;
+  id: string;
+  name: string;
 }
 
 export interface CourseDetailsSection {
-    block_type: string;
-    key: string;
-    open_seats: number;
-    total_seats: number;
-    section: string;
+  block_type: string;
+  key: string;
+  open_seats: number;
+  total_seats: number;
+  section: string;
 }
 
 export interface CourseDetails {
-    [blockType: string]: CourseDetailsSection[]; // Maps block type (e.g., "LEC") to sections
+  [blockType: string]: CourseDetailsSection[]; // Maps block type (e.g., "LEC") to sections
 }
 
 export interface WatchRequestPayload {
-    email: string;
-    term_id: string;
-    course_code: string;
-    section_key: string;
+  email: string;
+  term_id: string;
+  course_code: string;
+  section_key: string;
 }
 
 export interface WatchResponse {
-    message?: string; // Optional success message
-    // error?: string; // No longer needed here if we throw errors
+  message?: string; // Optional success message
+  // error?: string; // No longer needed here if we throw errors
 }
 
 export interface WatchBatchRequestPayload {
-    email: string;
-    term_id: string;
-    course_code: string;
-    section_keys: string[];
+  email: string;
+  term_id: string;
+  course_code: string;
+  section_keys: string[];
 }
 
 export interface WatchBatchResponse {
-    message?: string;
-    details?: string[];
-    request_ids?: number[];
+  message?: string;
+  details?: string[];
+  request_ids?: number[];
 }
 
 /**
@@ -73,14 +73,13 @@ export class ApiError extends Error {
 
   constructor(message: string, status: number, data: any) {
     super(message);
-    this.name = 'ApiError';
+    this.name = "ApiError";
     this.status = status;
     this.data = data;
     // Set the prototype explicitly for TypeScript compilation targets < ES6
     Object.setPrototypeOf(this, ApiError.prototype);
   }
 }
-
 
 /**
  * === Generic Response Handler ===
@@ -98,22 +97,22 @@ export class ApiError extends Error {
  * @throws {ApiError} Throws an ApiError if the response status is not OK, attaching status and data.
  */
 async function handleResponse<T>(response: Response): Promise<T> {
-    if (!response.ok) {
-        // Try to parse error details, provide fallback if parsing fails
-        const errorData = await response.json().catch(() => ({
-             error: `HTTP error! status: ${response.status} ${response.statusText}`
-        }));
-        console.error("API Error Response:", errorData);
+  if (!response.ok) {
+    // Try to parse error details, provide fallback if parsing fails
+    const errorData = await response.json().catch(() => ({
+      error: `HTTP error! status: ${response.status} ${response.statusText}`,
+    }));
+    console.error("API Error Response:", errorData);
 
-        // Create and throw a structured ApiError object
-        throw new ApiError(
-            errorData.error || `HTTP error! status: ${response.status}`,
-            response.status,
-            errorData
-        );
-    }
-    // If response is OK, parse and return JSON body
-    return response.json() as Promise<T>;
+    // Create and throw a structured ApiError object
+    throw new ApiError(
+      errorData.error || `HTTP error! status: ${response.status}`,
+      response.status,
+      errorData
+    );
+  }
+  // If response is OK, parse and return JSON body
+  return response.json() as Promise<T>;
 }
 
 /**
@@ -124,8 +123,8 @@ async function handleResponse<T>(response: Response): Promise<T> {
  * @returns {Promise<{ status: string }>} A promise resolving to an object containing the API health status.
  */
 export const getApiHealth = async (): Promise<{ status: string }> => {
-    const response = await fetch(`${API_BASE_URL}/health`);
-    return handleResponse<{ status: string }>(response);
+  const response = await fetch(`${API_BASE_URL}/health`);
+  return handleResponse<{ status: string }>(response);
 };
 
 /**
@@ -136,8 +135,8 @@ export const getApiHealth = async (): Promise<{ status: string }> => {
  * @returns {Promise<Term[]>} A promise resolving to an array of Term objects.
  */
 export const getTerms = async (): Promise<Term[]> => {
-    const response = await fetch(`${API_BASE_URL}/terms`);
-    return handleResponse<Term[]>(response);
+  const response = await fetch(`${API_BASE_URL}/terms`);
+  return handleResponse<Term[]>(response);
 };
 
 /**
@@ -151,16 +150,16 @@ export const getTerms = async (): Promise<Term[]> => {
  * @returns {Promise<string[]>} A promise resolving to an array of course code strings.
  */
 export const getCourses = async (termId: string): Promise<string[]> => {
-    // fetch URL
-    const response = await fetch(`${API_BASE_URL}/terms/${termId}/courses`);
-    // Special handling for 404, which might mean data isn't ready yet
-    if (response.status === 404) {
-        console.warn(`Course list for term ${termId} not found or not ready.`);
-        return []; // Return empty array, let UI decide how to handle
-    }
-    // For other statuses (200 OK or other errors, including 503), use handleResponse
-    // If 503 occurs, handleResponse will throw an error.
-    return handleResponse<string[]>(response);
+  // fetch URL
+  const response = await fetch(`${API_BASE_URL}/terms/${termId}/courses`);
+  // Special handling for 404, which might mean data isn't ready yet
+  if (response.status === 404) {
+    console.warn(`Course list for term ${termId} not found or not ready.`);
+    return []; // Return empty array, let UI decide how to handle
+  }
+  // For other statuses (200 OK or other errors, including 503), use handleResponse
+  // If 503 occurs, handleResponse will throw an error.
+  return handleResponse<string[]>(response);
 };
 
 /**
@@ -176,18 +175,21 @@ export const getCourses = async (termId: string): Promise<string[]> => {
  * @param {string} courseCode The course code (e.g., "COMPSCI 1JC3").
  * @returns {Promise<CourseDetails>} A promise resolving to a CourseDetails object.
  */
-export const getCourseDetails = async (termId: string, courseCode: string): Promise<CourseDetails> => {
-    const encodedCourseCode = encodeURIComponent(courseCode); // Ensure code is safe for URL
-    // Updated fetch URL to match RESTful structure
-    const response = await fetch(`${API_BASE_URL}/terms/${termId}/courses/${encodedCourseCode}`);
-     // Special handling for 404 (term/course/details not found)
-     if (response.status === 404) {
-        console.warn(`Details for course ${courseCode} in term ${termId} not found (404).`);
-        return {}; // Return empty object signifies not found
-    }
-    // For other statuses (200 OK or other errors, including 503), use handleResponse
-    // If 503 occurs, handleResponse will throw an error.
-    return handleResponse<CourseDetails>(response);
+export const getCourseDetails = async (
+  termId: string,
+  courseCode: string
+): Promise<CourseDetails> => {
+  const encodedCourseCode = encodeURIComponent(courseCode); // Ensure code is safe for URL
+  // Updated fetch URL to match RESTful structure
+  const response = await fetch(`${API_BASE_URL}/terms/${termId}/courses/${encodedCourseCode}`);
+  // Special handling for 404 (term/course/details not found)
+  if (response.status === 404) {
+    console.warn(`Details for course ${courseCode} in term ${termId} not found (404).`);
+    return {}; // Return empty object signifies not found
+  }
+  // For other statuses (200 OK or other errors, including 503), use handleResponse
+  // If 503 occurs, handleResponse will throw an error.
+  return handleResponse<CourseDetails>(response);
 };
 
 /**
@@ -204,49 +206,49 @@ export const getCourseDetails = async (termId: string, courseCode: string): Prom
  * @throws {Error} Throws an error if the API call fails or a network error occurs.
  */
 export const addWatchRequest = async (payload: WatchRequestPayload): Promise<WatchResponse> => {
-     try {
-        const response = await fetch(`${API_BASE_URL}/watch`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload), // Send data as JSON string
-        });
+  try {
+    const response = await fetch(`${API_BASE_URL}/watch`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload), // Send data as JSON string
+    });
 
-        // Handle non-successful responses (e.g., 400, 409, 500, 503)
-        // This now uses handleResponse which throws an ApiError
-        if (!response.ok) {
-            // Try to parse the error message from the JSON response body
-            const errorData = await response.json().catch(() => ({
-                error: `Request failed with status ${response.status} ${response.statusText}` // Fallback if body isn't JSON
-            }));
-            // Throw an error that can be caught by useMutation's onError
-            // Note: handleResponse could be used here too if we didn't have the outer try-catch
-            // for network errors. For consistency, we could refactor to always use handleResponse.
-            // However, the current specific error message might be slightly different.
-            // For now, we keep the direct error throwing for this specific case,
-            // but ensure the error message is extracted similarly.
-            throw new ApiError(
-                errorData.error || `Request failed with status ${response.status}`,
-                response.status,
-                errorData
-            );
-        }
-        // Handle successful responses (e.g., 201 Created)
-        // Expecting { message: "..." } from backend on success
-        return await response.json() as WatchResponse;
-
-     } catch (error) {
-        // Handle network errors or other exceptions during the fetch operation
-        // and re-throw them so useMutation's onError can catch them.
-        console.error("Network or other error during watch request:", error);
-        if (error instanceof Error) { // This will also catch ApiError
-            throw error; // Re-throw the original error
-        } else {
-            // Fallback for unknown error types
-            throw new Error("An unknown error occurred during the watch request.");
-        }
-     }
+    // Handle non-successful responses (e.g., 400, 409, 500, 503)
+    // This now uses handleResponse which throws an ApiError
+    if (!response.ok) {
+      // Try to parse the error message from the JSON response body
+      const errorData = await response.json().catch(() => ({
+        error: `Request failed with status ${response.status} ${response.statusText}`, // Fallback if body isn't JSON
+      }));
+      // Throw an error that can be caught by useMutation's onError
+      // Note: handleResponse could be used here too if we didn't have the outer try-catch
+      // for network errors. For consistency, we could refactor to always use handleResponse.
+      // However, the current specific error message might be slightly different.
+      // For now, we keep the direct error throwing for this specific case,
+      // but ensure the error message is extracted similarly.
+      throw new ApiError(
+        errorData.error || `Request failed with status ${response.status}`,
+        response.status,
+        errorData
+      );
+    }
+    // Handle successful responses (e.g., 201 Created)
+    // Expecting { message: "..." } from backend on success
+    return (await response.json()) as WatchResponse;
+  } catch (error) {
+    // Handle network errors or other exceptions during the fetch operation
+    // and re-throw them so useMutation's onError can catch them.
+    console.error("Network or other error during watch request:", error);
+    if (error instanceof Error) {
+      // This will also catch ApiError
+      throw error; // Re-throw the original error
+    } else {
+      // Fallback for unknown error types
+      throw new Error("An unknown error occurred during the watch request.");
+    }
+  }
 };
 
 /**
@@ -257,82 +259,83 @@ export const addWatchRequest = async (payload: WatchRequestPayload): Promise<Wat
  * @returns {Promise<WatchBatchResponse>} A promise resolving to a WatchBatchResponse.
  * @throws {Error} Throws an error if the API call fails or a network error occurs.
  */
-export const addBatchWatchRequest = async (payload: WatchBatchRequestPayload): Promise<WatchBatchResponse> => {
-     try {
-        const response = await fetch(`${API_BASE_URL}/watch/batch`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload),
-        });
+export const addBatchWatchRequest = async (
+  payload: WatchBatchRequestPayload
+): Promise<WatchBatchResponse> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/watch/batch`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
 
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({
-                error: `Request failed with status ${response.status} ${response.statusText}`
-            }));
-            throw new ApiError(
-                errorData.error || `Request failed with status ${response.status}`,
-                response.status,
-                errorData
-            );
-        }
-        return await response.json() as WatchBatchResponse;
-
-     } catch (error) {
-        console.error("Network or other error during batch watch request:", error);
-        if (error instanceof Error) {
-            throw error;
-        } else {
-            throw new Error("An unknown error occurred during the batch watch request.");
-        }
-     }
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({
+        error: `Request failed with status ${response.status} ${response.statusText}`,
+      }));
+      throw new ApiError(
+        errorData.error || `Request failed with status ${response.status}`,
+        response.status,
+        errorData
+      );
+    }
+    return (await response.json()) as WatchBatchResponse;
+  } catch (error) {
+    console.error("Network or other error during batch watch request:", error);
+    if (error instanceof Error) {
+      throw error;
+    } else {
+      throw new Error("An unknown error occurred during the batch watch request.");
+    }
+  }
 };
 
 // === Seat History & Stats Types ===
 
 export interface SeatSnapshot {
-    open_seats: number;
-    total_seats: number;
-    recorded_at: string;
+  open_seats: number;
+  total_seats: number;
+  recorded_at: string;
 }
 
 export interface SectionStats {
-    total_snapshots: number;
-    times_opened: number;
-    max_open_seats: number;
-    last_opened_at: string | null;
+  total_snapshots: number;
+  times_opened: number;
+  max_open_seats: number;
+  last_opened_at: string | null;
 }
 
 export interface MostWatchedSection {
-    section_key: string;
-    section_display: string;
-    request_count: number;
+  section_key: string;
+  section_display: string;
+  request_count: number;
 }
 
 export interface CourseRequestStats {
-    total_requests: number;
-    active_requests: number;
-    requests_last_24h: number;
-    requests_last_7d: number;
-    most_watched_sections: MostWatchedSection[];
+  total_requests: number;
+  active_requests: number;
+  requests_last_24h: number;
+  requests_last_7d: number;
+  most_watched_sections: MostWatchedSection[];
 }
 
 export interface SectionHistoryData {
-    history: SeatSnapshot[];
-    stats: SectionStats;
+  history: SeatSnapshot[];
+  stats: SectionStats;
 }
 
 export interface CourseStatsResponse {
-    request_stats: CourseRequestStats;
-    sections: Record<string, SectionHistoryData>;
-    hours: number;
+  request_stats: CourseRequestStats;
+  sections: Record<string, SectionHistoryData>;
+  hours: number;
 }
 
 export interface SectionHistoryResponse {
-    history: SeatSnapshot[];
-    stats: SectionStats;
-    hours: number;
+  history: SeatSnapshot[];
+  stats: SectionStats;
+  hours: number;
 }
 
 // === API Functions: Stats & History ===
@@ -340,95 +343,108 @@ export interface SectionHistoryResponse {
 /**
  * Fetches combined course-level request statistics and per-section history data.
  */
-export const getCourseStats = async (termId: string, courseCode: string, hours: number = 72): Promise<CourseStatsResponse> => {
-    const encodedCourseCode = encodeURIComponent(courseCode);
-    const response = await fetch(`${API_BASE_URL}/terms/${termId}/courses/${encodedCourseCode}/stats?hours=${hours}`);
-    return handleResponse<CourseStatsResponse>(response);
+export const getCourseStats = async (
+  termId: string,
+  courseCode: string,
+  hours: number = 72
+): Promise<CourseStatsResponse> => {
+  const encodedCourseCode = encodeURIComponent(courseCode);
+  const response = await fetch(
+    `${API_BASE_URL}/terms/${termId}/courses/${encodedCourseCode}/stats?hours=${hours}`
+  );
+  return handleResponse<CourseStatsResponse>(response);
 };
 
 /**
  * Fetches seat availability history and stats for a specific section.
  */
-export const getSectionHistory = async (termId: string, courseCode: string, sectionKey: string, hours: number = 72): Promise<SectionHistoryResponse> => {
-    const encodedCourseCode = encodeURIComponent(courseCode);
-    const encodedSectionKey = encodeURIComponent(sectionKey);
-    const response = await fetch(`${API_BASE_URL}/terms/${termId}/courses/${encodedCourseCode}/sections/${encodedSectionKey}/history?hours=${hours}`);
-    return handleResponse<SectionHistoryResponse>(response);
+export const getSectionHistory = async (
+  termId: string,
+  courseCode: string,
+  sectionKey: string,
+  hours: number = 72
+): Promise<SectionHistoryResponse> => {
+  const encodedCourseCode = encodeURIComponent(courseCode);
+  const encodedSectionKey = encodeURIComponent(sectionKey);
+  const response = await fetch(
+    `${API_BASE_URL}/terms/${termId}/courses/${encodedCourseCode}/sections/${encodedSectionKey}/history?hours=${hours}`
+  );
+  return handleResponse<SectionHistoryResponse>(response);
 };
 
 // === Authentication & User Watch Management ===
 
 export interface AuthRequestPayload {
-    email: string;
+  email: string;
 }
 
 export interface AuthVerifyPayload {
-    email: string;
-    token: string;
+  email: string;
+  token: string;
 }
 
 export interface AuthResponse {
-    message: string;
+  message: string;
 }
 
 export interface UserWatch {
-    id: number;
-    term_id: string;
-    course_code: string;
-    section_key: string;
-    section_display: string;
-    status: string;
-    created_at: string;
-    notified_at: string | null;
+  id: number;
+  term_id: string;
+  course_code: string;
+  section_key: string;
+  section_display: string;
+  status: string;
+  created_at: string;
+  notified_at: string | null;
 }
 
 export const requestAuthCode = async (payload: AuthRequestPayload): Promise<AuthResponse> => {
-    const response = await fetch(`${API_BASE_URL}/auth/request`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-    });
-    return handleResponse<AuthResponse>(response);
+  const response = await fetch(`${API_BASE_URL}/auth/request`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse<AuthResponse>(response);
 };
 
 export const getAuthStatus = async (): Promise<{ email: string }> => {
-    const response = await fetch(`${API_BASE_URL}/auth/status`, {
-        method: 'GET',
-        credentials: 'include',
-    });
-    return handleResponse<{ email: string }>(response);
+  const response = await fetch(`${API_BASE_URL}/auth/status`, {
+    method: "GET",
+    credentials: "include",
+  });
+  return handleResponse<{ email: string }>(response);
 };
 
 export const verifyAuthCode = async (payload: AuthVerifyPayload): Promise<AuthResponse> => {
-    const response = await fetch(`${API_BASE_URL}/auth/verify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        credentials: 'include', // Needed to receive the HTTPOnly cookie
-    });
-    return handleResponse<AuthResponse>(response);
+  const response = await fetch(`${API_BASE_URL}/auth/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    credentials: "include", // Needed to receive the HTTPOnly cookie
+  });
+  return handleResponse<AuthResponse>(response);
 };
 
 export const logoutUser = async (): Promise<AuthResponse> => {
-    const response = await fetch(`${API_BASE_URL}/auth/logout`, {
-        method: 'POST',
-        credentials: 'include', // Needed to send and clear the HTTPOnly cookie
-    });
-    return handleResponse<AuthResponse>(response);
+  const response = await fetch(`${API_BASE_URL}/auth/logout`, {
+    method: "POST",
+    credentials: "include", // Needed to send and clear the HTTPOnly cookie
+  });
+  return handleResponse<AuthResponse>(response);
 };
 
 export const getUserWatches = async (): Promise<UserWatch[]> => {
-    const response = await fetch(`${API_BASE_URL}/user/watches`, {
-        method: 'GET',
-        credentials: 'include', // Needed to send the HTTPOnly cookie
-    });
-    return handleResponse<UserWatch[]>(response);
+  const response = await fetch(`${API_BASE_URL}/user/watches`, {
+    method: "GET",
+    credentials: "include", // Needed to send the HTTPOnly cookie
+  });
+  return handleResponse<UserWatch[]>(response);
 };
 
 export const cancelUserWatch = async (requestId: number): Promise<{ message: string }> => {
-    const response = await fetch(`${API_BASE_URL}/user/watches/${requestId}`, {
-        method: 'DELETE',
-        credentials: 'include', // Needed to send the HTTPOnly cookie
-    });
-    return handleResponse<{ message: string }>(response);
+  const response = await fetch(`${API_BASE_URL}/user/watches/${requestId}`, {
+    method: "DELETE",
+    credentials: "include", // Needed to send the HTTPOnly cookie
+  });
+  return handleResponse<{ message: string }>(response);
 };

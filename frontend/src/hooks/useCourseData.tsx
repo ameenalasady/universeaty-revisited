@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   getTerms,
   getCourses,
@@ -16,13 +16,13 @@ import {
   SectionHistoryResponse,
   addBatchWatchRequest,
   ApiError,
-} from '@/services/api';
+} from "@/services/api";
 
 // --- Query Hooks ---
 
 export const useTerms = () => {
   return useQuery<Term[], ApiError | Error>({
-    queryKey: ['terms'],
+    queryKey: ["terms"],
     queryFn: getTerms,
     staleTime: 1000 * 60 * 60,
     select: (data) => {
@@ -37,8 +37,9 @@ export const useTerms = () => {
 };
 
 export const useCourses = (termId: string | null | undefined) => {
-  return useQuery<string[], ApiError | Error>({ // Error type can include ApiError
-    queryKey: ['courses', termId],
+  return useQuery<string[], ApiError | Error>({
+    // Error type can include ApiError
+    queryKey: ["courses", termId],
     queryFn: () => getCourses(termId!), // Non-null assertion okay due to 'enabled'
     enabled: !!termId, // Only run query if termId is truthy
     staleTime: 1000 * 60 * 10, // Cache courses for 10 mins per term
@@ -46,9 +47,13 @@ export const useCourses = (termId: string | null | undefined) => {
   });
 };
 
-export const useCourseDetails = (termId: string | null | undefined, courseCode: string | null | undefined) => {
-  return useQuery<CourseDetails, ApiError | Error>({ // Error type can include ApiError
-    queryKey: ['courseDetails', termId, courseCode],
+export const useCourseDetails = (
+  termId: string | null | undefined,
+  courseCode: string | null | undefined
+) => {
+  return useQuery<CourseDetails, ApiError | Error>({
+    // Error type can include ApiError
+    queryKey: ["courseDetails", termId, courseCode],
     queryFn: () => getCourseDetails(termId!, courseCode!), // Non-null assertions okay due to 'enabled'
     enabled: !!termId && !!courseCode, // Only run if both termId and courseCode are truthy
     staleTime: 1000 * 60 * 1, // Cache details for 1 min
@@ -59,8 +64,8 @@ export const useCourseDetails = (termId: string | null | undefined, courseCode: 
 // --- Mutation Hook ---
 
 export const useAddWatchRequest = () => {
-
-  return useMutation<WatchResponse, ApiError | Error, WatchRequestPayload>({ // Error type can include ApiError
+  return useMutation<WatchResponse, ApiError | Error, WatchRequestPayload>({
+    // Error type can include ApiError
     mutationFn: addWatchRequest,
   });
 };
@@ -73,9 +78,13 @@ export const useAddBatchWatchRequest = () => {
 
 // --- Stats & History Hooks ---
 
-export const useCourseStats = (termId: string | null | undefined, courseCode: string | null | undefined, hours: number = 72) => {
+export const useCourseStats = (
+  termId: string | null | undefined,
+  courseCode: string | null | undefined,
+  hours: number = 72
+) => {
   return useQuery<CourseStatsResponse, ApiError | Error>({
-    queryKey: ['courseStats', termId, courseCode, hours],
+    queryKey: ["courseStats", termId, courseCode, hours],
     queryFn: () => getCourseStats(termId!, courseCode!, hours),
     enabled: !!termId && !!courseCode,
     staleTime: 1000 * 60 * 2, // Cache for 2 minutes
@@ -91,7 +100,7 @@ export const useSectionHistory = (
   enabled: boolean = true
 ) => {
   return useQuery<SectionHistoryResponse, ApiError | Error>({
-    queryKey: ['sectionHistory', termId, courseCode, sectionKey, hours],
+    queryKey: ["sectionHistory", termId, courseCode, sectionKey, hours],
     queryFn: () => getSectionHistory(termId!, courseCode!, sectionKey!, hours),
     enabled: !!termId && !!courseCode && !!sectionKey && enabled,
     staleTime: 1000 * 60 * 1, // Cache for 1 minute

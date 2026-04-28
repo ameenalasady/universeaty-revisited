@@ -5,14 +5,15 @@ import sys
 
 # --- Import Configuration First ---
 from .config import (
+    BACKUP_COUNT,
+    LOG_DATE_FORMAT,
     LOG_DIRECTORY,
     LOG_FILE_PATH,
-    LOG_LEVEL,
     LOG_FORMAT,
-    LOG_DATE_FORMAT,
+    LOG_LEVEL,
     MAX_LOG_SIZE_BYTES,
-    BACKUP_COUNT
 )
+
 
 def setup_logging():
     """
@@ -45,7 +46,9 @@ def setup_logging():
     if root_logger.hasHandlers():
         # If handlers are already configured, assume setup is complete or being handled elsewhere.
         # You could add more sophisticated checks here if needed.
-        print("Logger already has handlers. Skipping setup.", file=sys.stderr) # Use print for bootstrap logging issues
+        print(
+            "Logger already has handlers. Skipping setup.", file=sys.stderr
+        )  # Use print for bootstrap logging issues
         return
 
     root_logger.setLevel(LOG_LEVEL)
@@ -58,30 +61,40 @@ def setup_logging():
             filename=LOG_FILE_PATH,
             maxBytes=MAX_LOG_SIZE_BYTES,
             backupCount=BACKUP_COUNT,
-            encoding='utf-8' # Good practice to specify encoding
+            encoding="utf-8",  # Good practice to specify encoding
         )
         file_handler.setLevel(LOG_LEVEL)
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
-        print(f"File logging configured: {LOG_FILE_PATH}", file=sys.stderr) # Initial confirmation
+        print(
+            f"File logging configured: {LOG_FILE_PATH}", file=sys.stderr
+        )  # Initial confirmation
     except Exception as e:
         # Log error related to file handler setup to stderr as logging might not be fully working yet
         print(f"Error setting up file logging handler: {e}", file=sys.stderr)
 
     # --- Console Handler ---
     try:
-        console_handler = logging.StreamHandler(sys.stderr) # Log to standard error
+        console_handler = logging.StreamHandler(sys.stderr)  # Log to standard error
         console_handler.setLevel(LOG_LEVEL)
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)
-        print(f"Console logging configured. Level: {logging.getLevelName(LOG_LEVEL)}", file=sys.stderr)
+        print(
+            f"Console logging configured. Level: {logging.getLevelName(LOG_LEVEL)}",
+            file=sys.stderr,
+        )
     except Exception as e:
         print(f"Error setting up console logging handler: {e}", file=sys.stderr)
 
     # Initial log message to confirm setup went through the logger itself
     initial_log = logging.getLogger(__name__)
-    initial_log.info(f"Logging initialized. Level: {logging.getLevelName(LOG_LEVEL)}. Outputting to console and file: {LOG_FILE_PATH}")
-    initial_log.info(f"Log rotation: Max size={MAX_LOG_SIZE_BYTES / 1024 / 1024:.1f}MB, Backups={BACKUP_COUNT}")
+    initial_log.info(
+        f"Logging initialized. Level: {logging.getLevelName(LOG_LEVEL)}. Outputting to console and file: {LOG_FILE_PATH}"
+    )
+    initial_log.info(
+        f"Log rotation: Max size={MAX_LOG_SIZE_BYTES / 1024 / 1024:.1f}MB, Backups={BACKUP_COUNT}"
+    )
+
 
 # --- Execute the setup when this module is imported ---
 setup_logging()

@@ -1,11 +1,11 @@
-import React from 'react';
+import React from "react";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Button } from '@/components/ui/button';
+import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Eye, BarChart3 } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { CourseDetailsSection } from '@/services/api';
+import { Eye, BarChart3 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { CourseDetailsSection } from "@/services/api";
 
 interface SectionRowProps {
   section: CourseDetailsSection;
@@ -16,7 +16,14 @@ interface SectionRowProps {
   isHistoryExpanded?: boolean;
 }
 
-const SectionRow: React.FC<SectionRowProps> = ({ section, onWatchClick, isWatchDisabled, isWatchMutationPending, onToggleHistory, isHistoryExpanded }) => {
+const SectionRow: React.FC<SectionRowProps> = ({
+  section,
+  onWatchClick,
+  isWatchDisabled,
+  isWatchMutationPending,
+  onToggleHistory,
+  isHistoryExpanded,
+}) => {
   const hasOpenSeats = section.open_seats > 0;
 
   return (
@@ -30,7 +37,9 @@ const SectionRow: React.FC<SectionRowProps> = ({ section, onWatchClick, isWatchD
               </span>
             </TooltipTrigger>
             <TooltipContent side="right">
-              <p className="text-xs opacity-80">Key: <span className="font-mono font-medium opacity-100">{section.key}</span></p>
+              <p className="text-xs opacity-80">
+                Key: <span className="font-mono font-medium opacity-100">{section.key}</span>
+              </p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -45,8 +54,10 @@ const SectionRow: React.FC<SectionRowProps> = ({ section, onWatchClick, isWatchD
               : "border-transparent bg-red-500/20 text-red-300 hover:bg-red-500/30"
           )}
         >
-          {hasOpenSeats ? 'OPEN' : 'FULL'}
-          <span className="font-normal opacity-70 ml-1.5">({section.open_seats}/{section.total_seats})</span>
+          {hasOpenSeats ? "OPEN" : "FULL"}
+          <span className="font-normal opacity-70 ml-1.5">
+            ({section.open_seats}/{section.total_seats})
+          </span>
         </Badge>
       </TableCell>
       <TableCell className="text-right">
@@ -59,14 +70,17 @@ const SectionRow: React.FC<SectionRowProps> = ({ section, onWatchClick, isWatchD
                     variant="ghost"
                     size="icon"
                     onClick={() => onToggleHistory(section.key)}
-                    aria-label={`${isHistoryExpanded ? 'Hide' : 'Show'} history for section ${section.section}`}
-                    className={cn("h-8 w-8 rounded-lg", isHistoryExpanded && "text-primary bg-primary/10")}
+                    aria-label={`${isHistoryExpanded ? "Hide" : "Show"} history for section ${section.section}`}
+                    className={cn(
+                      "h-8 w-8 rounded-lg",
+                      isHistoryExpanded && "text-primary bg-primary/10"
+                    )}
                   >
                     <BarChart3 className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>{isHistoryExpanded ? 'Hide seat history' : 'View seat history'}</p>
+                  <p>{isHistoryExpanded ? "Hide seat history" : "View seat history"}</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -93,7 +107,8 @@ const SectionRow: React.FC<SectionRowProps> = ({ section, onWatchClick, isWatchD
                   if (section.open_seats > 0) {
                     return <p>Section is already open</p>;
                   }
-                  if (isWatchMutationPending) { // Check if mutation is pending first when seats are 0
+                  if (isWatchMutationPending) {
+                    // Check if mutation is pending first when seats are 0
                     return <p>Submitting watch request...</p>;
                   }
                   // If not open and not pending, it's available to watch

@@ -1,0 +1,11 @@
+{
+  "name": "universeaty-revisited",
+  "private": true,
+  "description": "Monorepo root — manages Git hooks only. App code lives in frontend/ and backend/.",
+  "scripts": {
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
+  }
+}

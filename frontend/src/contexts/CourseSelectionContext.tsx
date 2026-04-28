@@ -18,12 +18,15 @@ export const CourseSelectionProvider: React.FC<CourseSelectionProviderProps> = (
     setSelectedCourseState(courseCode);
   }, []);
 
-  const contextValue = useMemo(() => ({
-    selectedTerm: selectedTermState,
-    selectedCourse: selectedCourseState,
-    setSelectedTerm,
-    setSelectedCourse,
-  }), [selectedTermState, selectedCourseState, setSelectedTerm, setSelectedCourse]);
+  const contextValue = useMemo(
+    () => ({
+      selectedTerm: selectedTermState,
+      selectedCourse: selectedCourseState,
+      setSelectedTerm,
+      setSelectedCourse,
+    }),
+    [selectedTermState, selectedCourseState, setSelectedTerm, setSelectedCourse]
+  );
 
   return (
     <CourseSelectionContext.Provider value={contextValue}>
