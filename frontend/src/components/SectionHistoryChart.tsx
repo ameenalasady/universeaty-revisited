@@ -114,18 +114,45 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
   const chartData = useMemo<ChartDataPoint[]>(() => {
     if (!data?.history || data.history.length === 0) return [];
 
-    const points: ChartDataPoint[] = data.history.map((snapshot) => ({
-      timestamp: new Date(snapshot.recorded_at + 'Z').getTime(),
-      openSeats: snapshot.open_seats,
-      totalSeats: snapshot.total_seats,
-    }));
+    const points: ChartDataPoint[] = [];
+    let lastMs = -1;
+
+    data.history.forEach((snapshot) => {
+      const ms = new Date(snapshot.recorded_at + 'Z').getTime();
+      
+      // If gap is greater than 2 hours (7200000 ms), insert a null point to break the line
+      if (lastMs !== -1 && ms - lastMs > 7200000) {
+        points.push({
+          timestamp: lastMs + 1000, // Slightly after the last point
+          openSeats: null as any,
+          totalSeats: null as any,
+        });
+      }
+      
+      points.push({
+        timestamp: ms,
+        openSeats: snapshot.open_seats,
+        totalSeats: snapshot.total_seats,
+      });
+      lastMs = ms;
+    });
 
     // Append a synthetic "now" point using the live seat count so the chart
     // extends to the current moment and correctly reflects the current state.
     const nowMs = Date.now();
     const lastPoint = points[points.length - 1];
-    const liveOpenSeats = currentOpenSeats ?? lastPoint?.openSeats ?? 0;
-    const liveTotalSeats = currentTotalSeats ?? lastPoint?.totalSeats ?? 0;
+    
+    // Gap check for the "now" point as well
+    if (lastPoint && lastPoint.openSeats !== null && nowMs - lastPoint.timestamp > 7200000) {
+        points.push({
+          timestamp: lastPoint.timestamp + 1000,
+          openSeats: null as any,
+          totalSeats: null as any,
+        });
+    }
+
+    const liveOpenSeats = currentOpenSeats ?? (lastPoint?.openSeats !== null ? lastPoint?.openSeats : 0) ?? 0;
+    const liveTotalSeats = currentTotalSeats ?? (lastPoint?.totalSeats !== null ? lastPoint?.totalSeats : 0) ?? 0;
     // Only append if the last snapshot is more than 30 seconds old
     if (!lastPoint || nowMs - lastPoint.timestamp > 30_000) {
       points.push({ timestamp: nowMs, openSeats: liveOpenSeats, totalSeats: liveTotalSeats });
@@ -266,6 +293,7 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
                 fill={`url(#gradient-${sectionKey})`}
                 animationDuration={600}
                 animationEasing="ease-out"
+                connectNulls={false}
               />
             </AreaChart>
           </ResponsiveContainer>

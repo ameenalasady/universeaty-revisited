@@ -379,20 +379,28 @@ class McMasterTimetableClient:
         pending_requests = []
         try:
             pending_requests = self.storage.get_pending_requests()
+            tracked_courses = self.storage.get_actively_tracked_courses(days=14)
         except Exception as e:
-            log.exception("Failed to retrieve pending requests from storage during check.")
+            log.exception("Failed to retrieve pending requests or tracked courses from storage during check.")
             return
 
-        if not pending_requests:
-            log.info("No pending course watch requests found.")
+        if not pending_requests and not tracked_courses:
+            log.info("No pending course watch requests or tracked courses found.")
             return
 
-        log.info(f"Found {len(pending_requests)} pending watch requests to check.")
+        log.info(f"Found {len(pending_requests)} pending watch requests and {len(tracked_courses)} actively tracked courses to check.")
 
         # Group requests by term
         requests_by_term: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         for req in pending_requests:
             requests_by_term[req['term_id']].append(req)
+
+        # Track courses to fetch by term
+        courses_to_fetch_by_term: Dict[str, set] = defaultdict(set)
+        for req in pending_requests:
+            courses_to_fetch_by_term[req['term_id']].add(req['course_code'])
+        for tc in tracked_courses:
+            courses_to_fetch_by_term[tc['term_id']].add(tc['course_code'])
 
         # --- VARIABLES FOR TRACKING STATUS ---
         error_ids: List[int] = []
@@ -408,7 +416,9 @@ class McMasterTimetableClient:
         data_found_in_cycle = False
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="DetailFetcher") as executor:
-            for term_id, term_requests in requests_by_term.items():
+            for term_id, course_codes_set in courses_to_fetch_by_term.items():
+                term_requests = requests_by_term.get(term_id, [])
+
                 # CHECK 1: Term validity
                 if term_id not in current_cached_terms_map:
                     log.warning(f"Term ID '{term_id}' no longer found. Marking requests as error.")
@@ -417,7 +427,7 @@ class McMasterTimetableClient:
                             error_ids.append(req['id'])
                     continue
 
-                unique_course_codes = sorted(list(set(req['course_code'] for req in term_requests)))
+                unique_course_codes = sorted(list(course_codes_set))
                 if not unique_course_codes:
                     continue
 

@@ -366,6 +366,44 @@ class RequestStorage:
 
         return pending_requests
 
+    def get_actively_tracked_courses(self, days: int = 14) -> List[Dict[str, str]]:
+        """
+        Retrieves unique (term_id, course_code) pairs that have had ANY watch request
+        (pending, notified, etc.) created or updated within the last N days.
+        This provides a broader list of courses to continuously track for charts.
+
+        Returns:
+            A list of dicts with 'term_id' and 'course_code'.
+        """
+        tracked_courses: List[Dict[str, str]] = []
+        with self.db_lock:
+            conn = None
+            try:
+                conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute(
+                    f"""SELECT DISTINCT term_id, course_code 
+                        FROM {self.WATCH_REQUESTS_TABLE} 
+                        WHERE status = ? OR 
+                              created_at >= datetime('now', ?) OR 
+                              notified_at >= datetime('now', ?)""",
+                    (self.STATUS_PENDING, f"-{days} days", f"-{days} days")
+                )
+                tracked_courses = [dict(row) for row in cursor.fetchall()]
+                conn.close()
+            except sqlite3.Error as e:
+                log.error(f"Storage: Error fetching actively tracked courses: {e}", exc_info=True)
+                tracked_courses = []
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except sqlite3.Error:
+                        pass
+
+        return tracked_courses
+
     # --- update_request_statuses ---
     def update_request_statuses(self, notified_ids: List[int], error_ids: List[int], checked_ids: List[int]):
         """
@@ -484,16 +522,26 @@ class RequestStorage:
                     if term_id is None or course_code is None or section_key is None or open_seats is None or total_seats is None:
                         continue
 
-                    # Deduplication: skip if last recorded value is identical
+                    # Deduplication & Heartbeat
                     cursor.execute(
-                        f"""SELECT open_seats, total_seats FROM {self.SEAT_SNAPSHOTS_TABLE}
+                        f"""SELECT open_seats, total_seats, recorded_at FROM {self.SEAT_SNAPSHOTS_TABLE}
                             WHERE term_id = ? AND course_code = ? AND section_key = ?
                             ORDER BY recorded_at DESC LIMIT 1""",
                         (term_id, course_code, section_key)
                     )
                     last_row = cursor.fetchone()
+                    
                     if last_row and last_row['open_seats'] == open_seats and last_row['total_seats'] == total_seats:
-                        continue  # No change, skip
+                        # Values are identical. Check if it's been > 1 hour (heartbeat)
+                        try:
+                            # Parse 'YYYY-MM-DD HH:MM:SS' UTC format
+                            last_recorded = datetime.strptime(last_row['recorded_at'], '%Y-%m-%d %H:%M:%S')
+                            last_recorded = last_recorded.replace(tzinfo=timezone.utc)
+                            if (datetime.now(timezone.utc) - last_recorded).total_seconds() < 3600:
+                                continue  # No change and less than 1 hour elapsed, skip
+                        except ValueError:
+                            pass # Fallback: if parsing fails, we might insert an extra point, which is safe
+
 
                     cursor.execute(
                         f"""INSERT INTO {self.SEAT_SNAPSHOTS_TABLE}
