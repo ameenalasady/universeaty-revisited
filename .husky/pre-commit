@@ -1,14 +1,14 @@
 echo "🔍 Running pre-commit checks..."
 
 # ── Frontend: ESLint + Prettier via lint-staged ──────────────────────────────
-STAGED_FRONTEND=$(git diff --cached --name-only | grep '^frontend/')
+STAGED_FRONTEND=$(git diff --cached --name-only | grep '^frontend/' || true)
 if [ -n "$STAGED_FRONTEND" ]; then
   echo "🎨 Linting & formatting frontend staged files..."
   (cd frontend && npx lint-staged) || exit 1
 fi
 
 # ── Backend: Ruff lint + format on staged Python files ───────────────────────
-STAGED_PY=$(git diff --cached --name-only | grep '^backend/.*\.py$')
+STAGED_PY=$(git diff --cached --name-only | grep '^backend/.*\.py$' || true)
 if [ -n "$STAGED_PY" ]; then
   echo "🐍 Linting & formatting backend staged Python files..."
 

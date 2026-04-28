@@ -177,16 +177,18 @@ const SectionHistoryChart: React.FC<SectionHistoryChartProps> = ({
 
   const maxSeats = useMemo(() => {
     if (chartData.length === 0) return 5;
-    const maxOpen = Math.max(...chartData.map((d) => d.openSeats));
+    const maxOpen = Math.max(...chartData.map((d) => d.openSeats ?? 0));
     return Math.max(maxOpen + 1, 2); // Ensure at least scale of 2
   }, [chartData]);
 
   const isAlwaysOpen = useMemo(() => {
-    return chartData.length > 0 && chartData.every((d) => d.openSeats > 0);
+    const validData = chartData.filter((d) => d.openSeats !== null);
+    return validData.length > 0 && validData.every((d) => d.openSeats! > 0);
   }, [chartData]);
 
   const isAlwaysClosed = useMemo(() => {
-    return chartData.length > 0 && chartData.every((d) => d.openSeats === 0);
+    const validData = chartData.filter((d) => d.openSeats !== null);
+    return validData.length > 0 && validData.every((d) => d.openSeats === 0);
   }, [chartData]);
 
   if (isLoading) {
