@@ -16,33 +16,22 @@ The process is designed to be simple and intuitive. Universeaty acts as your per
 2.  **Select Your Course:** A list of all courses available for that term will be loaded. Select the specific course you want to monitor.
 3.  **View Section Availability:** The application will fetch and display all sections (lectures, tutorials, labs) for your chosen course, showing their current seat availability (Open/Full).
 4.  **Watch a Section:** For any section that is currently full, click the "Watch" icon (eye symbol). You will be prompted to enter your email address.
-5.  **Receive a Notification:** The Universeaty backend service will begin monitoring that section. As soon as a seat becomes available, you will receive an email notification, allowing you to register for the course immediately.
-
-Your email is conveniently remembered in your browser's local storage to make watching multiple sections faster.
+5.  **Manage Your Watches:** Access your personalized **Watch Dashboard** via a secure email link. Here you can view active monitors, see historical data, or cancel requests.
+6.  **Receive a Notification:** The Universeaty backend service monitors sections every 15 seconds. As soon as a seat becomes available, you will receive an email notification.
 
 ## Key Features
 
-*   **Automated Monitoring:** The backend service checks for seat availability **every 60 seconds**, providing near real-time updates.
-*   **Email Notifications:** Receive a clear and direct email the moment a spot opens up in a section you are watching.
-*   **Simple & Clean Interface:** A minimalist user interface built for speed and ease of use, allowing you to set up a watch request in seconds.
-*   **Reliable & Efficient:** The backend is designed to handle numerous requests efficiently and includes robust error handling. Course and term lists are updated periodically (typically hourly) to ensure accuracy.
-*   **Privacy-Conscious:** Your email is used solely for sending you the notifications you request. It is not shared or used for any other purpose.
-*   **Completely Open Source:** Both the frontend and backend code are available for review, ensuring full transparency in how the system operates.
+*   **Real-Time Monitoring:** The backend service checks for seat availability **every 15 seconds**, providing industry-leading update speeds.
+*   **Historical Seat Analytics:** Visualize seat availability trends over time with interactive charts, helping you decide when a spot is most likely to open up.
+*   **Passwordless Dashboard:** Securely manage all your active watches in one place. No passwords required—just a one-click login link sent to your email.
+*   **Batch Course Watching:** Interested in an entire course? Watch all closed sections (lectures, labs, tutorials) with a single click.
+*   **Smart Search & Filters:** Quickly navigate through hundreds of courses with a responsive search interface and term-based filtering.
+*   **Mobile-First Design:** A fully responsive UI polished for both desktop and mobile devices, allowing you to monitor courses on the go.
+*   **Privacy-Conscious:** Your email is used solely for sending notifications and authentication links. It is never shared or used for marketing.
 
 ## Important — MyTimetable login
 
-Universeaty cannot perform live checks while McMaster's [MyTimetable](https://mytimetable.mcmaster.ca/) requires an authenticated login. Because this project does not have McMaster credentials, automated monitoring and live updates are temporarily suspended whenever MyTimetable prompts for sign-in. Monitoring will automatically resume as soon as the site becomes publicly accessible again (this typically resolves within a few days). We apologize for the inconvenience and appreciate your patience.
-
-## Frequently Asked Questions
-
-**How do I know my watch request was successful?**
-After you submit your email, you will see a confirmation message on the screen. From that point, the system is monitoring the section. You will only receive an email if and when a seat opens.
-
-**What happens if a course or section is cancelled or removed by the university?**
-If the system detects that a section you are watching no longer exists, your watch request for that specific section will be automatically deactivated to prevent false notifications.
-
-**Can I watch multiple sections at once?**
-Yes. You can create separate watch requests for as many different sections as you need.
+Universeaty cannot perform live checks while McMaster's [MyTimetable](https://mytimetable.mcmaster.ca/) requires an authenticated login. Because this project does not have McMaster credentials, automated monitoring and live updates are temporarily suspended whenever MyTimetable prompts for sign-in. Monitoring will automatically resume as soon as the site becomes publicly accessible again (this typically resolves within a few days).
 
 ## Technical Overview
 
@@ -50,23 +39,30 @@ This project is a monorepo containing both the frontend client and the backend A
 
 #### Frontend
 
-The user interface is a modern single-page application built for a fast and responsive user experience.
+A modern single-page application built for speed and a premium user experience.
 
-*   **Framework:** React with Vite
+*   **Framework:** React 19 with Vite
 *   **Language:** TypeScript
-*   **State Management:** TanStack Query (React Query) for server state caching and synchronization.
-*   **UI Components:** shadcn/ui
-*   **Styling:** Tailwind CSS
+*   **State Management:** TanStack Query (React Query) for server state.
+*   **Visualization:** Recharts for historical seat analytics.
+*   **UI Components:** shadcn/ui & Lucide Icons.
+*   **Styling:** Tailwind CSS 4.0.
 
 #### Backend
 
-The backend is a lightweight yet powerful Flask API responsible for handling user requests, interacting with the database, checking for course availability, and sending notifications.
+A high-performance Flask API designed for reliability and scale.
 
 *   **Framework:** Flask
-*   **Language:** Python
-*   **Database:** SQLite for storing watch requests.
-*   **Core Logic:** A multi-threaded service that periodically scrapes McMaster's official timetable data, compares it against active watch requests, and dispatches notifications.
-*   **Notifications:** Emails are sent via SMTP.
+*   **Database:** SQLite for persistence, with **Redis** integration for robust rate limiting.
+*   **Authentication:** Passwordless JWT-based authentication.
+*   **Asynchronous Processing:** Threaded worker queue for decoupled, non-blocking email notifications.
+*   **Core Logic:** Multi-threaded scraper that periodically fetches data from McMaster's official timetable, compares it against active watches, and dispatches alerts.
+
+#### CI/CD & Code Quality
+
+*   **CI:** Automated testing and build verification via GitHub Actions.
+*   **Quality:** Pre-commit hooks using Husky and lint-staged.
+*   **Linting/Formatting:** Ruff for Python, ESLint and Prettier for TypeScript/React.
 
 ## Contributing
 
