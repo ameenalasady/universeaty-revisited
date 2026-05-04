@@ -232,6 +232,44 @@ export const CourseDetailsDisplay: React.FC = () => {
 
   return (
     <>
+      {/* Donation Banner */}
+      {showDonationBanner && (
+        <div className="mt-6 bg-primary/5 border border-primary/20 p-5 lg:pr-14 rounded-xl flex flex-col lg:flex-row items-center justify-between gap-6 relative overflow-hidden transition-all duration-500 ease-in-out animate-in fade-in slide-in-from-top-4">
+          <div className="absolute top-2 right-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-full hover:bg-primary/10 text-muted-foreground"
+              onClick={dismissDonationBanner}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left z-10 w-full">
+            <div className="flex bg-primary/10 p-3 rounded-full text-primary shrink-0">
+              <Heart className="h-6 w-6" />
+            </div>
+            <div className="flex-1 sm:pr-6">
+              <p className="font-bold text-lg leading-tight mb-2 sm:mb-1 text-foreground">
+                Support Universeaty!
+              </p>
+              <p className="text-sm text-muted-foreground">
+                This project is run out-of-pocket and has processed over 20,000 watch requests. If
+                it helped you get a seat, please consider supporting the development.
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="default"
+            size="lg"
+            className="w-full lg:w-auto font-bold shadow-md z-10 whitespace-nowrap bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary"
+            onClick={() => window.open("https://ko-fi.com/ameenalasady", "_blank")}
+          >
+            Support on Ko-fi
+          </Button>
+        </div>
+      )}
+
       <Card className="mt-6 border-border/40 bg-card/30 backdrop-blur-sm overflow-hidden flex flex-col gap-0 py-0">
         <CardHeader className="px-4 sm:px-6 pt-6 pb-4">
           <CardTitle className="text-2xl sm:text-3xl font-bold">{selectedCourse}</CardTitle>
@@ -251,60 +289,6 @@ export const CourseDetailsDisplay: React.FC = () => {
             courseCode={selectedCourse}
             hours={historyHours}
           />
-
-          {/* History Range Selector */}
-          <div className="flex items-center justify-end gap-2 -mt-4">
-            <History className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-xs text-muted-foreground">History range:</span>
-            <Select value={String(historyHours)} onValueChange={(v) => setHistoryHours(Number(v))}>
-              <SelectTrigger className="h-7 w-[110px] text-xs border-border/50 bg-muted/20 focus:ring-0">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="72">Last 3 days</SelectItem>
-                <SelectItem value="168">Last 7 days</SelectItem>
-                <SelectItem value="336">Last 2 weeks</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Donation Banner */}
-          {showDonationBanner && (
-            <div className="bg-primary/5 border border-primary/20 p-5 lg:pr-14 rounded-xl flex flex-col lg:flex-row items-center justify-between gap-6 relative overflow-hidden transition-all duration-500 ease-in-out animate-in fade-in slide-in-from-top-4">
-              <div className="absolute top-2 right-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 rounded-full hover:bg-primary/10 text-muted-foreground"
-                  onClick={dismissDonationBanner}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-              <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left z-10 w-full">
-                <div className="flex bg-primary/10 p-3 rounded-full text-primary shrink-0">
-                  <Heart className="h-6 w-6" />
-                </div>
-                <div className="flex-1 sm:pr-6">
-                  <p className="font-bold text-lg leading-tight mb-2 sm:mb-1 text-foreground">
-                    Support Universeaty!
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    This project is run out-of-pocket and has processed over 20,000 watch requests.
-                    If it helped you get a seat, please consider supporting the development.
-                  </p>
-                </div>
-              </div>
-              <Button
-                variant="default"
-                size="lg"
-                className="w-full lg:w-auto font-bold shadow-md z-10 whitespace-nowrap bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary"
-                onClick={() => window.open("https://ko-fi.com/ameenalasady", "_blank")}
-              >
-                Support on Ko-fi
-              </Button>
-            </div>
-          )}
 
           {/* Batch Watch Button */}
           {closedSections.length > 0 && (
@@ -329,6 +313,22 @@ export const CourseDetailsDisplay: React.FC = () => {
               </Button>
             </div>
           )}
+
+          {/* History Range Selector */}
+          <div className="flex items-center justify-end gap-2 -mt-4">
+            <History className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">History range:</span>
+            <Select value={String(historyHours)} onValueChange={(v) => setHistoryHours(Number(v))}>
+              <SelectTrigger className="h-7 w-[110px] text-xs border-border/50 bg-muted/20 focus:ring-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="72">Last 3 days</SelectItem>
+                <SelectItem value="168">Last 7 days</SelectItem>
+                <SelectItem value="336">Last 2 weeks</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
           {/* Map entries and render SectionBlock */}
           <div className="space-y-12">
