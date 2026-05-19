@@ -109,7 +109,22 @@ def db_snapshots_timeline():
         conn = get_readonly_db_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT id, section_display, open_seats, total_seats, captured_at FROM seat_snapshots WHERE course_code = ? ORDER BY captured_at ASC",
+            """
+            SELECT 
+                s.id, 
+                COALESCE(w.section_display, s.section_key) AS section_display, 
+                s.open_seats, 
+                s.total_seats, 
+                s.recorded_at AS captured_at 
+            FROM seat_snapshots s
+            LEFT JOIN (
+                SELECT section_key, MAX(section_display) AS section_display 
+                FROM watch_requests 
+                GROUP BY section_key
+            ) w ON s.section_key = w.section_key
+            WHERE s.course_code = ? 
+            ORDER BY s.recorded_at ASC
+            """,
             (course_code,)
         )
         rows = [dict(row) for row in cursor.fetchall()]
