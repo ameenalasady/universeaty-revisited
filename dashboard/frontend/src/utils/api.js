@@ -23,18 +23,6 @@ export async function fetchWatches(page = 1, limit = 12, search = '', status = '
   return res.json();
 }
 
-export async function fetchTimelineCourses() {
-  const res = await fetch(`${API_BASE}/api/db/snapshots/courses`);
-  if (!res.ok) throw new Error('Failed to fetch historical courses list');
-  return res.json();
-}
-
-export async function fetchTimelineChart(courseCode) {
-  const url = `${API_BASE}/api/db/snapshots/timeline?course_code=${encodeURIComponent(courseCode)}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('Failed to fetch historical timeline data');
-  return res.json();
-}
 
 export async function restartScraperService() {
   const res = await fetch(`${API_BASE}/api/service/restart`, { method: 'POST' });

@@ -4,7 +4,6 @@ import Header from './components/Header';
 import MetricsCard from './components/MetricsCard';
 import ServiceControl from './components/ServiceControl';
 import WatchesTable from './components/WatchesTable';
-import HistoryChart from './components/HistoryChart';
 import LogConsole from './components/LogConsole';
 import { fetchStatus } from './utils/api';
 
@@ -81,23 +80,6 @@ export default function App() {
               SQLite Watch Requests
             </button>
             <button 
-              className={`tab-btn ${activeTab === 'seat-history' ? 'active' : ''}`}
-              onClick={() => setActiveTab('seat-history')}
-              style={{
-                background: activeTab === 'seat-history' ? '#27272a' : 'transparent',
-                border: 'none',
-                color: activeTab === 'seat-history' ? '#fafafa' : '#a1a1aa',
-                padding: '0.45rem 1.25rem',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontWeight: 500,
-                fontSize: '0.85rem',
-                transition: 'all 0.15s ease'
-              }}
-            >
-              Seats Historical Charts
-            </button>
-            <button 
               className={`tab-btn ${activeTab === 'live-logs' ? 'active' : ''}`}
               onClick={() => setActiveTab('live-logs')}
               style={{
@@ -118,7 +100,6 @@ export default function App() {
 
           {/* Render active tabs */}
           {activeTab === 'db-explorer' && <WatchesTable />}
-          {activeTab === 'seat-history' && <HistoryChart />}
           {activeTab === 'live-logs' && <LogConsole />}
         </div>
       </main>
