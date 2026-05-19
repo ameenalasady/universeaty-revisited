@@ -16,9 +16,16 @@ def tail_log(log_file_path):
 
         # Seek to the end of the file and stream additions dynamically
         f.seek(0, os.SEEK_END)
+        last_heartbeat = time.time()
         while True:
             line = f.readline()
             if not line:
+                # Send periodic keepalive to detect client disconnection and prevent thread leaks.
+                # If the socket is closed, waitress attempting to write this will trigger GeneratorExit.
+                now = time.time()
+                if now - last_heartbeat > 5.0:
+                    yield ": keepalive\n\n"
+                    last_heartbeat = now
                 time.sleep(0.5)
                 continue
             yield f"data: {line.strip()}\n\n"
