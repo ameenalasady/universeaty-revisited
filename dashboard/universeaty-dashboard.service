@@ -1,0 +1,15 @@
+[Unit]
+Description=Universeaty Admin Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=ameen
+Group=ameen
+WorkingDirectory=/home/ameen/universeaty-revisited/dashboard/backend
+Environment="PATH=/home/ameen/universeaty-revisited/backend/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/home/ameen/universeaty-revisited/backend/.venv/bin/python run.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
