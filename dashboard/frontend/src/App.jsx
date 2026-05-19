@@ -54,21 +54,28 @@ export default function App() {
 
         {/* Tab content navigation control panels */}
         <div className="panel">
-          <div className="tabs-header" style={{ display: 'flex', gap: '0.75rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '1rem', marginBottom: '1.5rem' }}>
+          <div className="tabs-header" style={{
+            display: 'inline-flex',
+            background: '#18181b',
+            border: '1px solid #27272a',
+            padding: '4px',
+            borderRadius: '8px',
+            gap: '4px',
+            marginBottom: '1.5rem'
+          }}>
             <button 
               className={`tab-btn ${activeTab === 'db-explorer' ? 'active' : ''}`}
               onClick={() => setActiveTab('db-explorer')}
               style={{
-                background: 'transparent',
-                border: activeTab === 'db-explorer' ? '1px solid rgba(139, 92, 246, 0.3)' : '1px solid transparent',
-                color: activeTab === 'db-explorer' ? 'white' : 'var(--text-muted)',
-                backgroundColor: activeTab === 'db-explorer' ? 'var(--accent-primary-glow)' : 'transparent',
-                padding: '0.5rem 1.25rem',
-                borderRadius: '8px',
+                background: activeTab === 'db-explorer' ? '#27272a' : 'transparent',
+                border: 'none',
+                color: activeTab === 'db-explorer' ? '#fafafa' : '#a1a1aa',
+                padding: '0.45rem 1.25rem',
+                borderRadius: '6px',
                 cursor: 'pointer',
-                fontWeight: 600,
-                fontSize: '0.95rem',
-                transition: 'all 0.2s ease'
+                fontWeight: 500,
+                fontSize: '0.85rem',
+                transition: 'all 0.15s ease'
               }}
             >
               SQLite Watch Requests
@@ -77,16 +84,15 @@ export default function App() {
               className={`tab-btn ${activeTab === 'seat-history' ? 'active' : ''}`}
               onClick={() => setActiveTab('seat-history')}
               style={{
-                background: 'transparent',
-                border: activeTab === 'seat-history' ? '1px solid rgba(139, 92, 246, 0.3)' : '1px solid transparent',
-                color: activeTab === 'seat-history' ? 'white' : 'var(--text-muted)',
-                backgroundColor: activeTab === 'seat-history' ? 'var(--accent-primary-glow)' : 'transparent',
-                padding: '0.5rem 1.25rem',
-                borderRadius: '8px',
+                background: activeTab === 'seat-history' ? '#27272a' : 'transparent',
+                border: 'none',
+                color: activeTab === 'seat-history' ? '#fafafa' : '#a1a1aa',
+                padding: '0.45rem 1.25rem',
+                borderRadius: '6px',
                 cursor: 'pointer',
-                fontWeight: 600,
-                fontSize: '0.95rem',
-                transition: 'all 0.2s ease'
+                fontWeight: 500,
+                fontSize: '0.85rem',
+                transition: 'all 0.15s ease'
               }}
             >
               Seats Historical Charts
@@ -95,16 +101,15 @@ export default function App() {
               className={`tab-btn ${activeTab === 'live-logs' ? 'active' : ''}`}
               onClick={() => setActiveTab('live-logs')}
               style={{
-                background: 'transparent',
-                border: activeTab === 'live-logs' ? '1px solid rgba(139, 92, 246, 0.3)' : '1px solid transparent',
-                color: activeTab === 'live-logs' ? 'white' : 'var(--text-muted)',
-                backgroundColor: activeTab === 'live-logs' ? 'var(--accent-primary-glow)' : 'transparent',
-                padding: '0.5rem 1.25rem',
-                borderRadius: '8px',
+                background: activeTab === 'live-logs' ? '#27272a' : 'transparent',
+                border: 'none',
+                color: activeTab === 'live-logs' ? '#fafafa' : '#a1a1aa',
+                padding: '0.45rem 1.25rem',
+                borderRadius: '6px',
                 cursor: 'pointer',
-                fontWeight: 600,
-                fontSize: '0.95rem',
-                transition: 'all 0.2s ease'
+                fontWeight: 500,
+                fontSize: '0.85rem',
+                transition: 'all 0.15s ease'
               }}
             >
               Real-time Timetable Logs

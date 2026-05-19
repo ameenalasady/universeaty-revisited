@@ -57,21 +57,21 @@ export default function WatchesTable() {
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 3fr', gap: '1.5rem' }}>
       {/* Quick stats column */}
       <div>
-        <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.03)', marginBottom: '1rem' }}>
+        <div style={{ background: '#18181b', padding: '1.25rem', borderRadius: '6px', border: '1px solid #27272a', marginBottom: '1rem' }}>
           <h4 style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>Total Watches</h4>
           <p style={{ fontSize: '1.6rem', fontWeight: 700, color: 'white' }}>{Number(summary.total_watches).toLocaleString()}</p>
         </div>
-        <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.03)', marginBottom: '1rem' }}>
+        <div style={{ background: '#18181b', padding: '1.25rem', borderRadius: '6px', border: '1px solid #27272a', marginBottom: '1rem' }}>
           <h4 style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>Pending</h4>
-          <p style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--accent-warning)' }}>{Number(summary.status_counts.pending).toLocaleString()}</p>
+          <p style={{ fontSize: '1.6rem', fontWeight: 700, color: '#f59e0b' }}>{Number(summary.status_counts.pending).toLocaleString()}</p>
         </div>
-        <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.03)', marginBottom: '1rem' }}>
+        <div style={{ background: '#18181b', padding: '1.25rem', borderRadius: '6px', border: '1px solid #27272a', marginBottom: '1rem' }}>
           <h4 style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>Notified</h4>
-          <p style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--accent-success)' }}>{Number(summary.status_counts.notified).toLocaleString()}</p>
+          <p style={{ fontSize: '1.6rem', fontWeight: 700, color: '#10b981' }}>{Number(summary.status_counts.notified).toLocaleString()}</p>
         </div>
-        <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.03)', marginBottom: '1rem' }}>
+        <div style={{ background: '#18181b', padding: '1.25rem', borderRadius: '6px', border: '1px solid #27272a', marginBottom: '1rem' }}>
           <h4 style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>Errored</h4>
-          <p style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--accent-error)' }}>{Number(summary.status_counts.error).toLocaleString()}</p>
+          <p style={{ fontSize: '1.6rem', fontWeight: 700, color: '#ef4444' }}>{Number(summary.status_counts.error).toLocaleString()}</p>
         </div>
       </div>
 
@@ -80,36 +80,16 @@ export default function WatchesTable() {
         <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem' }}>
           <input 
             type="text" 
-            className="db-input" 
             placeholder="Search by course code or recipient email..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             style={{
-              background: 'rgba(255, 255, 255, 0.03)',
-              border: '1px solid var(--glass-border)',
-              borderRadius: '8px',
-              padding: '0.6rem 1rem',
-              color: 'white',
-              fontSize: '0.95rem',
-              flex: 1,
-              outline: 'none',
-              transition: 'all 0.2s ease'
+              flex: 1
             }}
           />
           <select 
-            className="db-select"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            style={{
-              background: '#141221',
-              border: '1px solid var(--glass-border)',
-              borderRadius: '8px',
-              padding: '0.6rem 1rem',
-              color: 'white',
-              fontSize: '0.95rem',
-              outline: 'none',
-              cursor: 'pointer'
-            }}
           >
             <option value="">All Statuses</option>
             <option value="pending">Pending</option>
@@ -119,16 +99,7 @@ export default function WatchesTable() {
           </select>
           <button 
             type="submit" 
-            style={{
-              background: 'rgba(255, 255, 255, 0.03)',
-              border: '1px solid var(--glass-border)',
-              color: 'white',
-              padding: '0.6rem 1.2rem',
-              borderRadius: '8px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              fontSize: '0.95rem'
-            }}
+            className="btn-secondary"
           >
             Query
           </button>
@@ -158,12 +129,6 @@ export default function WatchesTable() {
                 </tr>
               ) : (
                 watches.map(row => {
-                  const statusColors = {
-                    pending: 'row-status-pending',
-                    notified: 'row-status-notified',
-                    error: 'row-status-error',
-                    cancelled: 'row-status-cancelled'
-                  };
                   return (
                     <tr key={row.id}>
                       <td style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.85rem', color: 'var(--text-muted)' }}>{row.id}</td>
@@ -172,27 +137,29 @@ export default function WatchesTable() {
                       <td>
                         <span style={{
                           fontFamily: "'JetBrains Mono', monospace",
-                          background: 'rgba(255,255,255,0.03)',
+                          background: '#27272a',
                           padding: '0.2rem 0.4rem',
                           borderRadius: '4px',
-                          fontSize: '0.8rem',
-                          border: '1px solid rgba(255,255,255,0.02)'
+                          fontSize: '0.75rem',
+                          border: '1px solid #3f3f46',
+                          color: '#fafafa'
                         }}>
                           {row.section_display}
                         </span>
                       </td>
                       <td style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{row.email}</td>
                       <td>
-                        <span className={`row-status-pill ${statusColors[row.status] || ''}`} style={{
+                        <span style={{
                           display: 'inline-block',
-                          padding: '0.15rem 0.5rem',
-                          borderRadius: '9999px',
+                          padding: '0.2rem 0.5rem',
+                          borderRadius: '4px',
                           fontSize: '0.7rem',
                           fontWeight: 600,
                           textTransform: 'uppercase',
                           letterSpacing: '0.25px',
-                          background: row.status === 'pending' ? 'rgba(245, 158, 11, 0.15)' : row.status === 'notified' ? 'rgba(16, 185, 129, 0.15)' : row.status === 'error' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(107, 114, 128, 0.15)',
-                          color: row.status === 'pending' ? 'var(--accent-warning)' : row.status === 'notified' ? 'var(--accent-success)' : row.status === 'error' ? 'var(--accent-error)' : 'var(--text-muted)'
+                          background: row.status === 'pending' ? 'rgba(245, 158, 11, 0.1)' : row.status === 'notified' ? 'rgba(16, 185, 129, 0.1)' : row.status === 'error' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(107, 114, 128, 0.1)',
+                          color: row.status === 'pending' ? '#f59e0b' : row.status === 'notified' ? '#10b981' : row.status === 'error' ? '#ef4444' : 'var(--text-muted)',
+                          border: row.status === 'pending' ? '1px solid rgba(245, 158, 11, 0.3)' : row.status === 'notified' ? '1px solid rgba(16, 185, 129, 0.3)' : row.status === 'error' ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(107, 114, 128, 0.3)'
                         }}>
                           {row.status}
                         </span>
@@ -212,16 +179,7 @@ export default function WatchesTable() {
           <button 
             disabled={page <= 1 || loading} 
             onClick={() => handlePageChange(-1)}
-            style={{
-              background: 'rgba(255, 255, 255, 0.03)',
-              border: '1px solid var(--glass-border)',
-              color: 'white',
-              padding: '0.4rem 1rem',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontWeight: 600,
-              opacity: page <= 1 ? 0.4 : 1
-            }}
+            className="btn-secondary"
           >
             Previous
           </button>
@@ -229,16 +187,7 @@ export default function WatchesTable() {
           <button 
             disabled={page >= totalPages || loading} 
             onClick={() => handlePageChange(1)}
-            style={{
-              background: 'rgba(255, 255, 255, 0.03)',
-              border: '1px solid var(--glass-border)',
-              color: 'white',
-              padding: '0.4rem 1rem',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontWeight: 600,
-              opacity: page >= totalPages ? 0.4 : 1
-            }}
+            className="btn-secondary"
           >
             Next
           </button>

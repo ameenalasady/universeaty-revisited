@@ -35,19 +35,18 @@ export default function ServiceControl({ service, onRestartComplete }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
           <div>
             <h3 style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>Scraper Service</h3>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'white' }}>universeaty.service</h2>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#fafafa' }}>universeaty.service</h2>
           </div>
           <span className={`service-status-badge ${badgeClass}`} style={{
-            padding: '0.35rem 0.75rem',
-            borderRadius: '9999px',
-            fontSize: '0.75rem',
+            padding: '0.25rem 0.6rem',
+            borderRadius: '4px',
+            fontSize: '0.7rem',
             fontWeight: 600,
             textTransform: 'uppercase',
             letterSpacing: '0.5px',
-            background: isActive ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-            color: isActive ? 'var(--accent-success)' : 'var(--accent-error)',
-            border: isActive ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)',
-            boxShadow: isActive ? '0 0 12px rgba(16, 185, 129, 0.1)' : 'none'
+            background: isActive ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+            color: isActive ? '#10b981' : '#ef4444',
+            border: isActive ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)'
           }}>
             {service.active_state || 'unknown'}
           </span>
@@ -58,10 +57,10 @@ export default function ServiceControl({ service, onRestartComplete }) {
           gridTemplateColumns: '1fr 1fr',
           gap: '1rem',
           marginBottom: '1.5rem',
-          background: 'rgba(255, 255, 255, 0.02)',
+          background: '#18181b',
           padding: '0.85rem',
-          borderRadius: '12px',
-          border: '1px solid rgba(255, 255, 255, 0.02)'
+          borderRadius: '6px',
+          border: '1px solid #27272a'
         }}>
           <div>
             <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-dimmed)', textTransform: 'uppercase', letterSpacing: '0.25px' }}>PID</span>
@@ -71,7 +70,7 @@ export default function ServiceControl({ service, onRestartComplete }) {
             <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-dimmed)', textTransform: 'uppercase', letterSpacing: '0.25px' }}>RAM Footprint</span>
             <strong style={{ display: 'block', fontSize: '0.95rem', color: 'var(--text-main)', marginTop: '0.15rem' }}>{service.pid > 0 ? `${service.memory_mb} MB` : '--'}</strong>
           </div>
-          <div style={{ gridColumn: 'span 2', marginTop: '0.25rem', borderTop: '1px solid rgba(255, 255, 255, 0.02)', paddingTop: '0.5rem' }}>
+          <div style={{ gridColumn: 'span 2', marginTop: '0.25rem', borderTop: '1px solid #27272a', paddingTop: '0.5rem' }}>
             <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-dimmed)', textTransform: 'uppercase', letterSpacing: '0.25px' }}>Uptime</span>
             <strong style={{ display: 'block', fontSize: '0.95rem', color: 'var(--text-main)', marginTop: '0.15rem' }}>{service.uptime || '--'}</strong>
           </div>
@@ -81,22 +80,9 @@ export default function ServiceControl({ service, onRestartComplete }) {
       <button 
         onClick={handleRestart} 
         disabled={loading}
-        className="restart-button"
+        className="btn-secondary"
         style={{
-          background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(217, 70, 239, 0.2) 100%)',
-          border: '1px solid rgba(139, 92, 246, 0.4)',
-          color: 'white',
-          padding: '0.6rem 1.2rem',
-          borderRadius: '8px',
-          fontWeight: 600,
-          cursor: loading ? 'not-allowed' : 'pointer',
-          transition: 'all 0.2s ease',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '0.5rem',
-          width: '100%',
-          opacity: loading ? 0.6 : 1
+          width: '100%'
         }}
       >
         <svg 

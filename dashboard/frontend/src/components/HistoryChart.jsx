@@ -47,7 +47,7 @@ export default function HistoryChart() {
         setInfoText(`Found ${sectionsList.length} sections with ${totalPoints} historical seat data points.`);
 
         const colors = [
-          '#8b5cf6', '#d946ef', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', 
+          '#fafafa', '#a1a1aa', '#71717a', '#10b981', '#f59e0b', '#ef4444', 
           '#3b82f6', '#ec4899', '#14b8a6', '#84cc16'
         ];
 
@@ -101,24 +101,24 @@ export default function HistoryChart() {
                     day: 'MMM d'
                   }
                 },
-                grid: { color: 'rgba(255, 255, 255, 0.03)' },
-                ticks: { color: '#9ca3af' }
+                grid: { color: '#27272a' },
+                ticks: { color: '#a1a1aa' }
               },
               y: {
                 beginAtZero: true,
-                grid: { color: 'rgba(255, 255, 255, 0.03)' },
-                ticks: { color: '#9ca3af', stepSize: 1 }
+                grid: { color: '#27272a' },
+                ticks: { color: '#a1a1aa', stepSize: 1 }
               }
             },
             plugins: {
               legend: {
-                labels: { color: '#f3f4f6', font: { family: 'Outfit' } }
+                labels: { color: '#fafafa', font: { family: "'Inter', sans-serif" } }
               },
               tooltip: {
-                background: '#141221',
-                titleColor: '#fff',
-                bodyColor: '#fff',
-                borderColor: 'rgba(255,255,255,0.08)',
+                backgroundColor: '#18181b',
+                titleColor: '#fafafa',
+                bodyColor: '#fafafa',
+                borderColor: '#27272a',
                 borderWidth: 1
               }
             }
@@ -143,27 +143,18 @@ export default function HistoryChart() {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
-        <label style={{ fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.9rem' }}>SELECT WATCHED COURSE HISTORY:</label>
+        <label style={{ fontWeight: 500, color: 'var(--text-muted)', fontSize: '0.85rem' }}>SELECT WATCHED COURSE HISTORY:</label>
         <select 
-          className="db-select" 
           value={selectedCourse}
           onChange={(e) => setSelectedCourse(e.target.value)}
           style={{
-            minWidth: '250px',
-            background: '#141221',
-            border: '1px solid var(--glass-border)',
-            borderRadius: '8px',
-            padding: '0.6rem 1rem',
-            color: 'white',
-            fontSize: '0.95rem',
-            outline: 'none',
-            cursor: 'pointer'
+            minWidth: '250px'
           }}
         >
           <option value="">Select a course...</option>
           {courses.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
-        <span style={{ fontSize: '0.85rem', color: 'var(--text-dimmed)' }}>{infoText}</span>
+        <span style={{ fontSize: '0.8rem', color: 'var(--text-dimmed)' }}>{infoText}</span>
       </div>
 
       <div style={{ position: 'relative', height: '400px', width: '100%' }}>

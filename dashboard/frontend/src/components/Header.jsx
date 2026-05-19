@@ -7,53 +7,49 @@ export default function Header({ uptime }) {
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
-      padding: '1.5rem 2rem',
-      backdropFilter: 'blur(12px)',
-      background: 'rgba(11, 9, 20, 0.6)',
-      borderBottom: '1px solid var(--glass-border)',
+      padding: '1.25rem 2rem',
+      background: '#18181b',
+      borderBottom: '1px solid #27272a',
       position: 'sticky',
       top: 0,
       zIndex: 100
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
         <h1 style={{
-          fontSize: '1.5rem',
-          fontWeight: 700,
+          fontSize: '1.25rem',
+          fontWeight: 600,
           letterSpacing: '-0.5px',
-          background: 'linear-gradient(135deg, #fff 0%, #a78bfa 100%)',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent'
+          color: '#fafafa'
         }}>Universeaty</h1>
         <span style={{
-          background: 'linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%)',
-          color: 'white',
+          background: '#27272a',
+          color: '#fafafa',
           fontSize: '0.7rem',
           fontWeight: 600,
           textTransform: 'uppercase',
-          padding: '0.25rem 0.6rem',
-          borderRadius: '9999px',
+          padding: '0.2rem 0.6rem',
+          borderRadius: '4px',
           letterSpacing: '0.5px',
-          boxShadow: '0 0 10px rgba(139, 92, 246, 0.4)'
+          border: '1px solid #3f3f46'
         }}>Private Admin</span>
       </div>
       <div style={{
-        background: 'var(--glass-bg)',
-        border: '1px solid var(--glass-border)',
-        padding: '0.4rem 0.8rem',
-        borderRadius: '9999px',
-        fontSize: '0.85rem',
-        color: 'var(--text-muted)',
+        background: '#18181b',
+        border: '1px solid #27272a',
+        padding: '0.35rem 0.75rem',
+        borderRadius: '6px',
+        fontSize: '0.8rem',
+        color: '#a1a1aa',
         display: 'flex',
         alignItems: 'center',
         gap: '0.5rem'
       }}>
         <span style={{
           display: 'inline-block',
-          width: '8px',
-          height: '8px',
-          backgroundColor: 'var(--accent-success)',
-          borderRadius: '50%',
-          boxShadow: '0 0 8px var(--accent-success)'
+          width: '6px',
+          height: '6px',
+          backgroundColor: '#10b981',
+          borderRadius: '50%'
         }}></span>
         Uptime: {uptime}
       </div>

@@ -16,7 +16,7 @@ export default function MetricsCard({ metrics }) {
       {/* Card 1: RAM & Disk Usage progress */}
       <div className="panel">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255, 255, 255, 0.03)', paddingBottom: '0.75rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #27272a', paddingBottom: '0.75rem' }}>
             <h3 style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Host Status (Raspberry Pi)</h3>
             <span style={{ fontSize: '0.75rem', fontWeight: 600, color: tempColor }}>{cpuTemp} °C</span>
           </div>
@@ -30,7 +30,7 @@ export default function MetricsCard({ metrics }) {
               {ram.used_mb} <span style={{ fontSize: '1rem', fontWeight: 500, color: 'var(--text-muted)' }}>/ {ram.total_mb} MB</span>
             </div>
             <div className="progress-bar">
-              <div className="progress-fill" style={{ width: `${ram.percent}%`, background: 'linear-gradient(90deg, var(--accent-primary) 0%, var(--accent-secondary) 100%)' }}></div>
+              <div className="progress-fill" style={{ width: `${ram.percent}%`, background: '#fafafa' }}></div>
             </div>
           </div>
 
@@ -43,7 +43,7 @@ export default function MetricsCard({ metrics }) {
               {Math.round(disk.used_mb / 1024)} <span style={{ fontSize: '1rem', fontWeight: 500, color: 'var(--text-muted)' }}>/ {Math.round(disk.total_mb / 1024)} GB</span>
             </div>
             <div className="progress-bar">
-              <div className="progress-fill" style={{ width: `${disk.percent}%`, background: 'linear-gradient(90deg, #d946ef 0%, #06b6d4 100%)' }}></div>
+              <div className="progress-fill" style={{ width: `${disk.percent}%`, background: '#a1a1aa' }}></div>
             </div>
           </div>
         </div>
@@ -52,7 +52,7 @@ export default function MetricsCard({ metrics }) {
       {/* Card 2: Files Storage & CPU stats */}
       <div className="panel" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', width: '100%' }}>
-          <h3 style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textTransform: 'uppercase', borderBottom: '1px solid rgba(255, 255, 255, 0.03)', paddingBottom: '0.75rem' }}>Files Storage</h3>
+          <h3 style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textTransform: 'uppercase', borderBottom: '1px solid #27272a', paddingBottom: '0.75rem' }}>Files Storage</h3>
           
           <div style={{ display: 'flex', justifycontent: 'space-between', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
@@ -65,7 +65,7 @@ export default function MetricsCard({ metrics }) {
             </div>
           </div>
 
-          <div style={{ background: 'rgba(255, 255, 255, 0.01)', border: '1px solid rgba(255, 255, 255, 0.02)', padding: '0.85rem', borderRadius: '12px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+          <div style={{ background: '#18181b', border: '1px solid #27272a', padding: '0.85rem', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
               <span>CPU Load Average:</span>
               <strong style={{ color: 'white', fontFamily: "'JetBrains Mono', monospace" }}>{cpuLoad}</strong>
