@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { requestAuthCode, verifyAuthCode, logoutUser, getAuthStatus } from "../services/api";
 import WatchDashboard from "../components/WatchDashboard";
@@ -79,9 +79,26 @@ export const ManageWatches: React.FC = () => {
     },
   });
 
+  // Track the last submitted token to prevent infinite submission loops on wrong code entry
+  const lastSubmittedTokenRef = useRef("");
+
+  // Reset the last submitted token when the user types/deletes characters so they can retry
+  useEffect(() => {
+    if (token.length < 7) {
+      lastSubmittedTokenRef.current = "";
+    }
+  }, [token]);
+
   // Auto-submit when a full 7-character token is entered
   useEffect(() => {
-    if (token.length === 7 && step === "code" && email && !verifyMutation.isPending) {
+    if (
+      token.length === 7 &&
+      step === "code" &&
+      email &&
+      !verifyMutation.isPending &&
+      lastSubmittedTokenRef.current !== token
+    ) {
+      lastSubmittedTokenRef.current = token;
       verifyMutation.mutate({ email: email.trim().toLowerCase(), token });
     }
   }, [token, step, email, verifyMutation]);
@@ -123,6 +140,7 @@ export const ManageWatches: React.FC = () => {
       toast.error("Please enter the full 6-character access code.");
       return;
     }
+    lastSubmittedTokenRef.current = trimmedToken;
     verifyMutation.mutate({ email: trimmedEmail, token: trimmedToken });
   };
 
