@@ -21,17 +21,6 @@ export default function Header({ uptime }) {
           letterSpacing: '-0.5px',
           color: '#fafafa'
         }}>Universeaty</h1>
-        <span style={{
-          background: '#27272a',
-          color: '#fafafa',
-          fontSize: '0.7rem',
-          fontWeight: 600,
-          textTransform: 'uppercase',
-          padding: '0.2rem 0.6rem',
-          borderRadius: '4px',
-          letterSpacing: '0.5px',
-          border: '1px solid #3f3f46'
-        }}>Private Admin</span>
       </div>
       <div style={{
         background: '#18181b',

@@ -1,27 +1,27 @@
 /* dashboard/frontend/src/index.css */
 :root {
   --bg-color: #09090b;
-  --panel-bg: #09090b;
-  --card-bg: #09090b;
-  --accent-primary: #fafafa;
+  --panel-bg: #121215;
+  --card-bg: #121215;
+  --accent-primary: #ffffff;
   --accent-primary-foreground: #09090b;
-  --accent-secondary: #27272a;
+  --accent-secondary: #1c1c22;
   --accent-secondary-foreground: #fafafa;
-  --accent-muted: #27272a;
+  --accent-muted: #1c1c22;
   
   --accent-success: #10b981;
   --accent-warning: #f59e0b;
   --accent-error: #ef4444;
   
-  --glass-bg: #09090b;
-  --glass-border: #27272a;
-  --glass-border-hover: #3f3f46;
-  --glass-glow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+  --glass-bg: #121215;
+  --glass-border: #1e1e24;
+  --glass-border-hover: #32323d;
+  --glass-glow: 0 4px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   
   --text-main: #fafafa;
   --text-muted: #a1a1aa;
   --text-dimmed: #71717a;
-  --radius: 8px;
+  --radius: 12px;
 }
 
 * {
@@ -34,6 +34,10 @@
 
 body {
   background-color: var(--bg-color);
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.05) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(168, 85, 247, 0.05) 0px, transparent 50%);
+  background-attachment: fixed;
   color: var(--text-main);
   min-height: 100vh;
   display: flex;
@@ -41,18 +45,20 @@ body {
   overflow-x: hidden;
 }
 
-/* Glass Panel -> Flat Shadcn Card */
+/* Premium Panel Card */
 .panel {
   background: var(--panel-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius);
   box-shadow: var(--glass-glow);
   padding: 1.5rem;
-  transition: border-color 0.2s ease, background-color 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .panel:hover {
   border-color: var(--glass-border-hover);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transform: translateY(-2px);
 }
 
 .grid-3 {

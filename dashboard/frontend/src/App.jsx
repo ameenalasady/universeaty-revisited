@@ -105,7 +105,7 @@ export default function App() {
       </main>
 
       <footer style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-dimmed)', fontSize: '0.8rem', borderTop: '1px solid var(--glass-border)', backdropFilter: 'blur(12px)', background: 'rgba(11, 9, 20, 0.6)', marginTop: '3rem' }}>
-        <p>&copy; 2026 Universeaty Dashboard &bull; strictly private local administrative interface</p>
+        <p>&copy; 2026 Universeaty Dashboard</p>
       </footer>
     </div>
   );

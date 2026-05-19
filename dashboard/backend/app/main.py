@@ -23,7 +23,7 @@ app.register_blueprint(logs_bp)
 def serve_dashboard():
     if not os.path.exists(os.path.join(app.static_folder, "index.html")):
         return (
-            "<h3>Universeaty Private Admin Dashboard</h3>"
+            "<h3>Universeaty Dashboard</h3>"
             "<p>React frontend build not found in <code>static/</code> directory. "
             "Please run <code>npm run build</code> locally and transfer compiled assets.</p>"
         ), 404
