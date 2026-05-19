@@ -1,3 +1,5 @@
 implementation_plan.md
 node_modules/
 package-lock.json
+dashboard/backend/static/
+
