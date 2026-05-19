@@ -70,6 +70,10 @@ class RequestStorage:
                 # Use check_same_thread=False because background threads will access the DB
                 conn = sqlite3.connect(self.db_path, check_same_thread=False)
                 cursor = conn.cursor()
+
+                # Enable Write-Ahead Logging (WAL) mode for concurrent read/write performance
+                cursor.execute("PRAGMA journal_mode=WAL;")
+
                 cursor.execute(f"""
                     CREATE TABLE IF NOT EXISTS {self.WATCH_REQUESTS_TABLE} (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
