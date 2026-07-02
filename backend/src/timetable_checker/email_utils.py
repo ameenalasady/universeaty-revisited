@@ -59,6 +59,7 @@ except Exception:
         "FATAL: Failed to initialize Jinja2 Environment."
     )  # Log full traceback
 
+
 # --- Shared Rate Limiter ---
 # Paces ALL outbound sends (across every worker) to a steady rate instead of
 # bursting, regardless of how many requests are queued at once.
@@ -139,7 +140,9 @@ def _record_daily_send():
         _daily_count += 1
         count = _daily_count
         pending_warnings = [
-            t for t in EMAIL_DAILY_WARN_THRESHOLDS if count >= t and t not in _daily_warned
+            t
+            for t in EMAIL_DAILY_WARN_THRESHOLDS
+            if count >= t and t not in _daily_warned
         ]
         _daily_warned.update(pending_warnings)
     for threshold in pending_warnings:
@@ -147,6 +150,7 @@ def _record_daily_send():
             f"Sent {count} emails today via {EMAIL_SENDER} — approaching Gmail's "
             f"~500/day personal account sending limit (threshold: {threshold})."
         )
+
 
 # --- Email Content Generation ---
 
