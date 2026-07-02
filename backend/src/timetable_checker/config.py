@@ -75,6 +75,37 @@ FETCH_DETAILS_TIMEOUT_SECONDS = int(
     os.environ.get("FETCH_DETAILS_TIMEOUT_SECONDS", 10)
 )  # Timeout for fetching batch course details
 
+# --- Email Notification Safety Settings ---
+# Number of background workers that send notification emails concurrently.
+EMAIL_WORKER_THREADS = int(os.environ.get("EMAIL_WORKER_THREADS", 4))
+
+# Shared rate limit applied across ALL workers combined (not per-worker), to keep
+# outbound SMTP traffic to Gmail at a steady, non-bursty pace regardless of queue depth.
+EMAIL_RATE_PER_MINUTE = int(os.environ.get("EMAIL_RATE_PER_MINUTE", 24))
+
+# Circuit breaker: after this many consecutive SMTP failures, stop attempting sends
+# entirely for the cooldown period. Last-resort safety net; the rate limiter above
+# is the primary defense against Gmail throttling.
+SMTP_CIRCUIT_FAILURE_THRESHOLD = int(
+    os.environ.get("SMTP_CIRCUIT_FAILURE_THRESHOLD", 5)
+)
+SMTP_CIRCUIT_COOLDOWN_SECONDS = int(
+    os.environ.get("SMTP_CIRCUIT_COOLDOWN_SECONDS", 180)
+)  # 3 minutes
+
+# Per-request exponential backoff, so a single stuck request doesn't get retried
+# every check cycle. base * 2^fail_count, capped at max.
+NOTIFY_BACKOFF_BASE_SECONDS = int(os.environ.get("NOTIFY_BACKOFF_BASE_SECONDS", 30))
+NOTIFY_BACKOFF_MAX_SECONDS = int(os.environ.get("NOTIFY_BACKOFF_MAX_SECONDS", 600))
+NOTIFY_MAX_ATTEMPTS = int(os.environ.get("NOTIFY_MAX_ATTEMPTS", 15))
+
+# Gmail's personal-account SMTP sending limit is roughly 500 recipients/24h
+# (vs. 2000/day for Google Workspace). We don't currently enforce this, just
+# warn loudly in logs as we approach it so it's visible before we get hard-rejected.
+EMAIL_DAILY_WARN_THRESHOLDS = [
+    int(x) for x in os.environ.get("EMAIL_DAILY_WARN_THRESHOLDS", "400,480").split(",")
+]
+
 # External Links (Used in Templates/Emails)
 MYTIMETABLE_URL = "https://mytimetable.mcmaster.ca"
 UNIVERSEATY_URL = os.environ.get(

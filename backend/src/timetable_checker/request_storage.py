@@ -96,6 +96,20 @@ class RequestStorage:
                     f"CREATE INDEX IF NOT EXISTS idx_term_course ON {self.WATCH_REQUESTS_TABLE}(term_id, course_code)"
                 )
 
+                # --- Migration: notification backoff tracking columns ---
+                # Added after the SMTP retry-storm incident so failed notify attempts
+                # back off exponentially instead of retrying every check cycle.
+                for column_def in (
+                    "notify_fail_count INTEGER NOT NULL DEFAULT 0",
+                    "last_notify_attempt_at TIMESTAMP",
+                ):
+                    try:
+                        cursor.execute(
+                            f"ALTER TABLE {self.WATCH_REQUESTS_TABLE} ADD COLUMN {column_def}"
+                        )
+                    except sqlite3.OperationalError:
+                        pass  # column already exists
+
                 # --- Seat Snapshots Table ---
                 cursor.execute(f"""
                     CREATE TABLE IF NOT EXISTS {self.SEAT_SNAPSHOTS_TABLE} (
@@ -416,7 +430,9 @@ class RequestStorage:
                 conn.row_factory = sqlite3.Row  # Access columns by name
                 cursor = conn.cursor()
                 cursor.execute(
-                    f"SELECT id, email, term_id, course_code, section_key, section_display FROM {self.WATCH_REQUESTS_TABLE} WHERE status = ?",
+                    f"""SELECT id, email, term_id, course_code, section_key, section_display,
+                               notify_fail_count, last_notify_attempt_at
+                        FROM {self.WATCH_REQUESTS_TABLE} WHERE status = ?""",
                     (self.STATUS_PENDING,),
                 )
                 pending_requests = [dict(row) for row in cursor.fetchall()]
@@ -583,6 +599,52 @@ class RequestStorage:
                     except sqlite3.Error as close_err:
                         log.error(
                             f"Storage: Error closing database connection after status update: {close_err}"
+                        )
+
+    def record_notify_attempt(self, req_id: int, success: bool):
+        """
+        Records the outcome of a notification send attempt for backoff purposes.
+        On failure, increments notify_fail_count so the next attempt is delayed
+        further (see NOTIFY_BACKOFF_* in config). On success, resets the counter
+        (harmless since the row is about to transition out of 'pending' anyway).
+        """
+        with self.db_lock:
+            conn = None
+            try:
+                conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                cursor = conn.cursor()
+                now_iso = datetime.now(UTC).isoformat()
+                if success:
+                    cursor.execute(
+                        f"""UPDATE {self.WATCH_REQUESTS_TABLE}
+                            SET notify_fail_count = 0, last_notify_attempt_at = ?
+                            WHERE id = ?""",
+                        (now_iso, req_id),
+                    )
+                else:
+                    cursor.execute(
+                        f"""UPDATE {self.WATCH_REQUESTS_TABLE}
+                            SET notify_fail_count = notify_fail_count + 1, last_notify_attempt_at = ?
+                            WHERE id = ?""",
+                        (now_iso, req_id),
+                    )
+                conn.commit()
+            except sqlite3.Error as e:
+                log.error(
+                    f"Storage: Error recording notify attempt for request {req_id}: {e}"
+                )
+                if conn:
+                    try:
+                        conn.rollback()
+                    except sqlite3.Error:
+                        pass
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except sqlite3.Error as close_err:
+                        log.error(
+                            f"Storage: Error closing connection after recording notify attempt: {close_err}"
                         )
 
     # --- Seat Snapshot Methods ---

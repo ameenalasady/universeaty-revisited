@@ -7,6 +7,7 @@ import re
 import threading
 import time
 from collections import defaultdict
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
@@ -19,7 +20,11 @@ from .config import (
     DATABASE_PATH,
     DEFAULT_CHECK_INTERVAL_SECONDS,
     DEFAULT_UPDATE_INTERVAL_SECONDS,
+    EMAIL_WORKER_THREADS,
     FETCH_DETAILS_TIMEOUT_SECONDS,
+    NOTIFY_BACKOFF_BASE_SECONDS,
+    NOTIFY_BACKOFF_MAX_SECONDS,
+    NOTIFY_MAX_ATTEMPTS,
 )
 
 # Import custom exceptions
@@ -87,8 +92,12 @@ class McMasterTimetableClient:
 
         # Notification queue + worker control
         self.notification_queue: queue.Queue[dict[str, Any]] = queue.Queue()
-        self.num_worker_threads = 4
+        self.num_worker_threads = EMAIL_WORKER_THREADS
         self._worker_threads: list[threading.Thread] = []
+        # Tracks request IDs that are currently queued or being sent, so a request
+        # already in flight from a previous cycle isn't queued a second time.
+        self._in_flight_req_ids: set[int] = set()
+        self._in_flight_lock = threading.Lock()
 
         self.update_thread: threading.Thread | None = None
         self.check_thread: threading.Thread | None = None
@@ -637,6 +646,51 @@ class McMasterTimetableClient:
 
                     # CHECK 4: Seats open?
                     if current_open_seats > 0:
+                        fail_count = req.get("notify_fail_count") or 0
+                        last_attempt_str = req.get("last_notify_attempt_at")
+
+                        # Give up after too many failed attempts rather than retrying forever.
+                        if fail_count >= NOTIFY_MAX_ATTEMPTS:
+                            log.error(
+                                f"Request {req_id} exceeded max notify attempts "
+                                f"({fail_count}). Marking as error."
+                            )
+                            error_ids.append(req_id)
+                            continue
+
+                        # Exponential backoff: skip re-queuing until enough time has
+                        # passed since the last failed attempt for this request.
+                        if last_attempt_str:
+                            try:
+                                last_attempt = datetime.fromisoformat(last_attempt_str)
+                                if last_attempt.tzinfo is None:
+                                    last_attempt = last_attempt.replace(tzinfo=UTC)
+                                backoff = min(
+                                    NOTIFY_BACKOFF_BASE_SECONDS * (2**fail_count),
+                                    NOTIFY_BACKOFF_MAX_SECONDS,
+                                )
+                                elapsed = (
+                                    datetime.now(UTC) - last_attempt
+                                ).total_seconds()
+                                if elapsed < backoff:
+                                    continue  # still backing off; recheck next cycle
+                            except ValueError:
+                                pass
+
+                        if email_utils.is_smtp_circuit_open():
+                            log.warning(
+                                f"SMTP circuit open — skipping notification queue "
+                                f"for request {req_id} this cycle."
+                            )
+                            continue
+
+                        with self._in_flight_lock:
+                            if req_id in self._in_flight_req_ids:
+                                # Already queued/being sent from a previous cycle.
+                                queued_notification_ids.add(req_id)
+                                continue
+                            self._in_flight_req_ids.add(req_id)
+
                         log.info(
                             f"Open seats ({current_open_seats}) for {course_code}! Queuing email for {email} (ID: {req_id})."
                         )
@@ -669,9 +723,13 @@ class McMasterTimetableClient:
                                 queued_notification_ids.add(req_id)
                             else:
                                 log.error(f"Email generation failed for ID {req_id}")
+                                with self._in_flight_lock:
+                                    self._in_flight_req_ids.discard(req_id)
 
                         except Exception:
                             log.exception(f"Error queuing notification for ID {req_id}")
+                            with self._in_flight_lock:
+                                self._in_flight_req_ids.discard(req_id)
 
         # --- Zombie Detection ---
         if pending_requests and not data_found_in_cycle:
@@ -1103,83 +1161,98 @@ class McMasterTimetableClient:
 
     def _notification_worker(self):
         """
-        Background thread that pulls email tasks from the queue, sends them,
-        and updates the database status for that request.
+        Background thread that pulls email tasks from the queue, sends them over
+        a persistent, reused SMTP connection, and updates the database status
+        and backoff bookkeeping for that request.
         Task shape: {'email': str, 'subject': str, 'html_body': str, 'req_id': int}
         """
-        while True:
-            task = self.notification_queue.get()
-            if task is None:  # Sentinel value for shutdown
-                self.notification_queue.task_done()
-                break
-            try:
-                if not isinstance(task, dict):
-                    log.error(f"Notification worker received invalid task: {task}")
-                    continue
-
-                email = task.get("email")
-                subject = task.get("subject")
-                html_body = task.get("html_body")
-                req_id = task.get("req_id")
-
-                if not (
-                    email
-                    and subject is not None
-                    and html_body is not None
-                    and isinstance(req_id, int)
-                ):
-                    log.error(f"Notification worker received incomplete task: {task}")
-                    continue
-
-                success = False
-                try:
-                    success = email_utils.send_email(
-                        email, subject, html_body=html_body
-                    )
-                except EmailRecipientInvalidError as invalid_err:
-                    # Permanent failure for this request; mark as error in DB
-                    log.error(
-                        f"Notification worker: invalid email recipient for request {req_id}: {invalid_err}"
-                    )
-                    try:
-                        self.storage.update_request_statuses(
-                            notified_ids=[], error_ids=[req_id], checked_ids=[]
-                        )
-                    except Exception:
-                        log.exception(
-                            f"Notification worker: failed to mark request {req_id} as error in storage."
-                        )
-                    continue
-                except Exception as send_err:
-                    # Transient send failure; leave request pending (so main loop will pick up next cycle)
-                    log.exception(
-                        f"Notification worker: transient error sending email for request {req_id} to '{email}': {send_err}"
-                    )
-                    # Do not change DB status; leave as PENDING
-                    continue
-
-                # On success, update storage marking the request as notified
-                if success:
-                    try:
-                        self.storage.update_request_statuses(
-                            notified_ids=[req_id], error_ids=[], checked_ids=[]
-                        )
-                        log.info(
-                            f"Notification worker: marked request {req_id} as notified."
-                        )
-                    except Exception:
-                        log.exception(
-                            f"Notification worker: failed to update storage for notified request {req_id}"
-                        )
-
-            except Exception:
-                log.exception("Unexpected error in notification worker loop.")
-            finally:
-                try:
+        sender = email_utils.PersistentSmtpSender()
+        try:
+            while True:
+                task = self.notification_queue.get()
+                if task is None:  # Sentinel value for shutdown
                     self.notification_queue.task_done()
+                    break
+                req_id = None
+                try:
+                    if not isinstance(task, dict):
+                        log.error(f"Notification worker received invalid task: {task}")
+                        continue
+
+                    email = task.get("email")
+                    subject = task.get("subject")
+                    html_body = task.get("html_body")
+                    req_id = task.get("req_id")
+
+                    if not (
+                        email
+                        and subject is not None
+                        and html_body is not None
+                        and isinstance(req_id, int)
+                    ):
+                        log.error(
+                            f"Notification worker received incomplete task: {task}"
+                        )
+                        continue
+
+                    success = False
+                    try:
+                        success = sender.send(email, subject, html_body=html_body)
+                    except EmailRecipientInvalidError as invalid_err:
+                        # Permanent failure for this request; mark as error in DB
+                        log.error(
+                            f"Notification worker: invalid email recipient for request {req_id}: {invalid_err}"
+                        )
+                        try:
+                            self.storage.update_request_statuses(
+                                notified_ids=[], error_ids=[req_id], checked_ids=[]
+                            )
+                        except Exception:
+                            log.exception(
+                                f"Notification worker: failed to mark request {req_id} as error in storage."
+                            )
+                        continue
+                    except Exception as send_err:
+                        # Transient send failure; record it for backoff and leave
+                        # request pending (main loop will retry on its own schedule)
+                        log.warning(
+                            f"Notification worker: transient error sending email for request {req_id} to '{email}': {send_err}"
+                        )
+                        self.storage.record_notify_attempt(req_id, success=False)
+                        continue
+
+                    if success:
+                        self.storage.record_notify_attempt(req_id, success=True)
+                        try:
+                            self.storage.update_request_statuses(
+                                notified_ids=[req_id], error_ids=[], checked_ids=[]
+                            )
+                            log.info(
+                                f"Notification worker: marked request {req_id} as notified."
+                            )
+                        except Exception:
+                            log.exception(
+                                f"Notification worker: failed to update storage for notified request {req_id}"
+                            )
+                    else:
+                        log.warning(
+                            f"Notification worker: send failed for request {req_id}, will back off and retry."
+                        )
+                        self.storage.record_notify_attempt(req_id, success=False)
+
                 except Exception:
-                    # ignore task_done errors
-                    pass
+                    log.exception("Unexpected error in notification worker loop.")
+                finally:
+                    if isinstance(req_id, int):
+                        with self._in_flight_lock:
+                            self._in_flight_req_ids.discard(req_id)
+                    try:
+                        self.notification_queue.task_done()
+                    except Exception:
+                        # ignore task_done errors
+                        pass
+        finally:
+            sender.close()
 
     def shutdown(self):
         """Gracefully stops all background threads and drains the notification queue."""
