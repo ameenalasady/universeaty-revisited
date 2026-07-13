@@ -825,8 +825,11 @@ class RequestStorage:
 
                 max_points = 500
                 if total_count > max_points and total_count > 0:
-                    # Downsample: select every Nth row using rowid modulus
-                    step = total_count // max_points
+                    # Downsample: select every Nth row using rowid modulus.
+                    # Ceiling division so step >= 2 whenever count > max_points
+                    # (with floor, 501-999 rows gave step=1 and `rn % 1 = 1`
+                    # matched nothing, returning only the last row).
+                    step = -(-total_count // max_points)
                     cursor.execute(
                         f"""SELECT open_seats, total_seats, recorded_at FROM (
                                 SELECT *, ROW_NUMBER() OVER (ORDER BY recorded_at) as rn
