@@ -785,18 +785,27 @@ class RequestStorage:
 
                 window_start_modifier = f"-{hours} hours"
 
-                # 1. Fetch the most recent snapshot BEFORE the window (to show continuous state if unchanged)
+                # 1. Fetch the most recent snapshot BEFORE the window (to show continuous
+                # state if unchanged), relabelled to the window start. Only do this when
+                # that snapshot is recent enough (within 2 hours of the window start):
+                # snapshots are heartbeat-recorded at least hourly while a section is
+                # monitored, so an older prior snapshot means monitoring had a gap and
+                # the seat state at the window boundary is unknown. Carrying a stale
+                # value forward fabricates a data point whose timestamp shifts with the
+                # selected range.
                 cursor.execute(
                     f"""SELECT open_seats, total_seats, datetime('now', ?) as recorded_at
                         FROM {self.SEAT_SNAPSHOTS_TABLE}
                         WHERE term_id = ? AND course_code = ? AND section_key = ?
                         AND recorded_at < datetime('now', ?)
+                        AND recorded_at >= datetime('now', ?, '-2 hours')
                         ORDER BY recorded_at DESC LIMIT 1""",
                     (
                         window_start_modifier,
                         term_id,
                         course_code,
                         section_key,
+                        window_start_modifier,
                         window_start_modifier,
                     ),
                 )
