@@ -1,10 +1,5 @@
 import React from "react";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-} from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -121,9 +116,7 @@ const CourseDetailsSkeleton: React.FC = () => (
               </div>
             </div>
 
-            {blockIndex < 2 && (
-              <Separator className="my-10 border-border/40" />
-            )}
+            {blockIndex < 2 && <Separator className="my-10 border-border/40" />}
           </div>
         ))}
       </div>
