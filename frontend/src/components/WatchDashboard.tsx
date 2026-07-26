@@ -135,48 +135,50 @@ export const WatchDashboard: React.FC = () => {
     return (
       <div
         key={w.id}
-        className="group relative border border-border/40 rounded-xl p-5 mb-4 bg-muted/20 backdrop-blur-sm transition-all hover:border-primary/30 hover:bg-muted/40"
+        className="group relative mb-3 rounded-xl border border-border/50 bg-muted/10 p-4 backdrop-blur-sm transition-colors hover:border-border hover:bg-muted/20 sm:p-5"
       >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-xl tracking-tight">{w.course_code}</span>
-              <span className="text-muted-foreground font-medium">{w.section_display}</span>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+              <span className="text-lg font-bold tracking-tight">{w.course_code}</span>
+              <span className="font-medium text-muted-foreground">{w.section_display}</span>
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium mt-0.5 flex-wrap">
-              <span className="opacity-70">Requested</span>
-              <span className="bg-muted/50 border border-border/40 px-2 py-0.5 rounded-md text-[10px] uppercase font-bold tracking-wider">
-                {new Date(w.created_at + "Z").toLocaleDateString()}
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="rounded-md border border-border/40 bg-muted/40 px-2 py-0.5 text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
+                {new Date(w.created_at + "Z").toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}
               </span>
-              <span className="opacity-50 mx-1">•</span>
-              <span className="bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-md text-[10px] uppercase font-bold tracking-wider">
+              <span className="rounded-md border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-bold tracking-wider text-primary uppercase">
                 {termName}
               </span>
             </div>
           </div>
 
-          <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-none border-muted/20">
+          <div className="flex items-center justify-between gap-2 border-t border-border/40 pt-3 sm:justify-end sm:gap-2 sm:border-none sm:pt-0">
             <div className="flex gap-2">
               {w.status === "pending" && (
                 <Badge
                   variant="secondary"
-                  className="bg-yellow-500/10 text-yellow-600 border-yellow-500/20 font-bold px-3 py-1 rounded-md"
+                  className="rounded-md border border-yellow-500/20 bg-yellow-500/10 px-2.5 py-1 text-xs font-semibold text-yellow-500"
                 >
                   Pending
                 </Badge>
               )}
               {w.status === "notified" && (
                 <Badge
-                  variant="default"
-                  className="border-transparent bg-green-500/20 text-green-300 hover:bg-green-500/30 font-bold px-3 py-1 rounded-md"
+                  variant="outline"
+                  className="rounded-md border border-green-500/25 bg-green-500/10 px-2.5 py-1 text-xs font-semibold text-green-400 hover:bg-green-500/10"
                 >
                   Notified
                 </Badge>
               )}
               {w.status === "error" && (
                 <Badge
-                  variant="destructive"
-                  className="border-transparent bg-red-500/20 text-red-300 hover:bg-red-500/30 font-bold px-3 py-1 rounded-md"
+                  variant="outline"
+                  className="rounded-md border border-red-500/25 bg-red-500/10 px-2.5 py-1 text-xs font-semibold text-red-400 hover:bg-red-500/10"
                 >
                   Error
                 </Badge>
@@ -184,7 +186,7 @@ export const WatchDashboard: React.FC = () => {
               {w.status === "cancelled" && (
                 <Badge
                   variant="outline"
-                  className="text-muted-foreground font-bold px-3 py-1 border-dashed rounded-md"
+                  className="rounded-md border-dashed px-2.5 py-1 text-xs font-semibold text-muted-foreground"
                 >
                   Cancelled
                 </Badge>
@@ -195,7 +197,7 @@ export const WatchDashboard: React.FC = () => {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-10 w-10 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-full transition-colors"
+                className="h-9 w-9 rounded-lg text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
                 onClick={() =>
                   watchAgainMutation.mutate({
                     email: authData?.email || "",
@@ -210,9 +212,9 @@ export const WatchDashboard: React.FC = () => {
                 {watchAgainMutation.isPending &&
                 watchAgainMutation.variables?.section_key === w.section_key &&
                 watchAgainMutation.variables?.course_code === w.course_code ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <RefreshCw className="h-5 w-5" />
+                  <RefreshCw className="h-4 w-4" />
                 )}
               </Button>
             )}
@@ -221,15 +223,15 @@ export const WatchDashboard: React.FC = () => {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-10 w-10 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-full transition-colors"
+                className="h-9 w-9 rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                 onClick={() => cancelMutation.mutate(w.id)}
                 disabled={cancelMutation.isPending}
                 title="Cancel Watch"
               >
                 {cancelMutation.isPending && cancelMutation.variables === w.id ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Trash2 className="h-5 w-5" />
+                  <Trash2 className="h-4 w-4" />
                 )}
               </Button>
             )}
@@ -242,26 +244,27 @@ export const WatchDashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {showBanner && watches && watches.length > 0 && (
-        <div className="bg-primary/5 border border-primary/20 p-5 lg:pr-14 rounded-xl flex flex-col lg:flex-row items-center justify-between gap-6 relative overflow-hidden transition-all duration-500 ease-in-out animate-in fade-in slide-in-from-top-4">
+        <div className="relative flex flex-col items-center justify-between gap-5 overflow-hidden rounded-xl border border-primary/20 bg-primary/5 p-5 pr-12 animate-in fade-in slide-in-from-top-4 duration-500 lg:flex-row">
           <div className="absolute top-2 right-2">
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 rounded-full hover:bg-primary/10 text-muted-foreground"
+              className="h-8 w-8 rounded-full text-muted-foreground hover:bg-primary/10"
               onClick={handleDismissBanner}
+              aria-label="Dismiss support banner"
             >
               <X className="h-4 w-4" />
             </Button>
           </div>
-          <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left z-10 w-full">
-            <div className="flex bg-primary/10 p-3 rounded-full text-primary shrink-0">
+          <div className="z-10 flex w-full flex-col items-center gap-4 text-center sm:flex-row sm:text-left">
+            <div className="flex shrink-0 rounded-full bg-primary/10 p-3 text-primary">
               <Heart className="h-6 w-6" />
             </div>
             <div className="flex-1 sm:pr-6">
-              <p className="font-bold text-lg leading-tight mb-2 sm:mb-1 text-foreground">
-                Support Universeaty!
+              <p className="mb-1 text-base font-bold leading-tight text-foreground">
+                Support Universeaty
               </p>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm leading-relaxed text-muted-foreground">
                 This project is run out-of-pocket and has processed over 20,000 watch requests. If
                 it helped you get a seat, please consider supporting the development.
               </p>
@@ -270,27 +273,28 @@ export const WatchDashboard: React.FC = () => {
           <Button
             variant="default"
             size="lg"
-            className="w-full lg:w-auto font-bold shadow-md z-10 whitespace-nowrap bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary"
+            className="z-10 w-full shrink-0 font-semibold whitespace-nowrap shadow-md lg:w-auto"
             onClick={() => window.open("https://ko-fi.com/ameenalasady", "_blank")}
           >
+            <Heart className="mr-2 h-4 w-4" />
             Support on Ko-fi
           </Button>
         </div>
       )}
 
-      <div className="flex flex-col sm:flex-row gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Search className="absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search course or section..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 bg-background/50 backdrop-blur-sm"
+            className="h-11 rounded-lg pl-10"
           />
         </div>
-        <div className="w-full sm:w-[180px]">
+        <div className="w-full sm:w-[200px]">
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="bg-background/50 backdrop-blur-sm">
+            <SelectTrigger className="!h-11 w-full rounded-lg px-3.5">
               <div className="flex items-center gap-2">
                 <Filter className="h-4 w-4 text-muted-foreground" />
                 <SelectValue placeholder="Filter by status" />
@@ -308,11 +312,11 @@ export const WatchDashboard: React.FC = () => {
       </div>
 
       {filteredWatches.length === 0 && !isLoading && !isError ? (
-        <div className="bg-muted/30 border border-border/50 rounded-xl p-8 text-center space-y-3">
-          <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto mb-4">
+        <div className="rounded-xl border border-dashed border-border/60 bg-card/20 p-10 text-center">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-muted/30 ring-1 ring-border/50">
             <Search className="h-6 w-6 text-muted-foreground" />
           </div>
-          <p className="text-muted-foreground font-medium">
+          <p className="font-medium text-muted-foreground">
             {watches?.length === 0
               ? "You don't have any watches yet."
               : "No watches match your search filters."}
@@ -320,6 +324,7 @@ export const WatchDashboard: React.FC = () => {
           {watches && watches.length > 0 && (
             <Button
               variant="link"
+              className="mt-1"
               onClick={() => {
                 setSearchQuery("");
                 setStatusFilter("all");
@@ -332,26 +337,34 @@ export const WatchDashboard: React.FC = () => {
       ) : (
         <div className="space-y-8">
           {activeWatches.length > 0 && (
-            <div>
-              <h3 className="text-lg font-semibold tracking-tight mb-4">Active Watches</h3>
+            <section>
+              <h3 className="mb-4 flex items-center gap-2.5 text-base font-semibold tracking-tight">
+                Active Watches
+                <span className="rounded-md bg-muted/40 px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  {activeWatches.length}
+                </span>
+              </h3>
               {activeWatches.map(renderWatch)}
-            </div>
+            </section>
           )}
           {cancelledWatches.length > 0 && (
-            <div>
-              <h3 className="text-lg font-semibold tracking-tight mb-4 text-muted-foreground">
+            <section>
+              <h3 className="mb-4 flex items-center gap-2.5 text-base font-semibold tracking-tight text-muted-foreground">
                 Cancelled
+                <span className="rounded-md bg-muted/40 px-2 py-0.5 text-xs font-medium">
+                  {cancelledWatches.length}
+                </span>
               </h3>
               <div className="opacity-60">{cancelledWatches.map(renderWatch)}</div>
-            </div>
+            </section>
           )}
           {oldTermWatches.length > 0 && (
-            <div>
-              <h3 className="text-lg font-semibold tracking-tight mb-4 text-muted-foreground flex items-center gap-2">
+            <section>
+              <h3 className="mb-4 flex items-center gap-2 text-base font-semibold tracking-tight text-muted-foreground">
                 <History className="h-4 w-4" /> Past Terms
               </h3>
               <div className="opacity-60">{oldTermWatches.map(renderWatch)}</div>
-            </div>
+            </section>
           )}
         </div>
       )}

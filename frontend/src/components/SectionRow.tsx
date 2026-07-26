@@ -3,8 +3,9 @@ import { TableCell, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Eye, BarChart3 } from "lucide-react";
+import { Eye, BarChart3, Monitor, Moon, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatTimeblocks, isOnline, isEvening } from "@/lib/format";
 import { CourseDetailsSection } from "@/services/api";
 
 interface SectionRowProps {
@@ -25,10 +26,14 @@ const SectionRow: React.FC<SectionRowProps> = ({
   isHistoryExpanded,
 }) => {
   const hasOpenSeats = section.open_seats > 0;
+  const schedule = formatTimeblocks(section.timeblocks);
+  const online = isOnline(section.attrs);
+  const evening = isEvening(section.attrs);
+  const hasWaitlist = (section.waitlist_count ?? 0) > 0;
 
   return (
-    <TableRow key={section.key} className="border-b-muted/20">
-      <TableCell className="font-medium">
+    <TableRow key={section.key} className="border-border/40 transition-colors hover:bg-muted/20">
+      <TableCell className="py-3.5 pl-4 font-medium">
         <TooltipProvider delayDuration={200}>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -37,30 +42,71 @@ const SectionRow: React.FC<SectionRowProps> = ({
               </span>
             </TooltipTrigger>
             <TooltipContent side="right">
-              <p className="text-xs opacity-80">
-                Key: <span className="font-mono font-medium opacity-100">{section.key}</span>
-              </p>
+              <div className="text-xs space-y-1">
+                <p className="opacity-80">
+                  Key: <span className="font-mono font-medium opacity-100">{section.key}</span>
+                </p>
+                {section.location && (
+                  <p className="opacity-80 flex items-center gap-1">
+                    <MapPin className="h-3 w-3" /> {section.location}
+                  </p>
+                )}
+                {section.teacher && <p className="opacity-80">Instructor: {section.teacher}</p>}
+              </div>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
+        {/* Schedule + badges below the section number */}
+        {(schedule || online || evening) && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {schedule && (
+              <span className="text-xs text-muted-foreground leading-relaxed whitespace-normal break-words">
+                {schedule}
+              </span>
+            )}
+            {online && (
+              <Badge
+                variant="outline"
+                className="text-[10px] px-1.5 py-0 h-4 bg-blue-500/10 text-blue-400 border-blue-500/20"
+              >
+                <Monitor className="h-2.5 w-2.5 mr-0.5" /> Online
+              </Badge>
+            )}
+            {evening && (
+              <Badge
+                variant="outline"
+                className="text-[10px] px-1.5 py-0 h-4 bg-purple-500/10 text-purple-400 border-purple-500/20"
+              >
+                <Moon className="h-2.5 w-2.5 mr-0.5" /> Evening
+              </Badge>
+            )}
+          </div>
+        )}
       </TableCell>
-      <TableCell className="text-center">
-        <Badge
-          variant={hasOpenSeats ? "default" : "destructive"}
-          className={cn(
-            "text-xs font-semibold px-3 py-1 tracking-wide rounded-md",
-            hasOpenSeats
-              ? "border-transparent bg-green-500/20 text-green-300 hover:bg-green-500/30"
-              : "border-transparent bg-red-500/20 text-red-300 hover:bg-red-500/30"
+      <TableCell className="py-3.5 text-center">
+        <div className="flex flex-col items-center gap-1">
+          <Badge
+            variant="outline"
+            className={cn(
+              "text-xs font-semibold px-3 py-1 tracking-wide rounded-md border",
+              hasOpenSeats
+                ? "bg-green-500/10 text-green-400 border-green-500/25 hover:bg-green-500/10"
+                : "bg-red-500/10 text-red-400 border-red-500/25 hover:bg-red-500/10"
+            )}
+          >
+            {hasOpenSeats ? "OPEN" : "FULL"}
+            <span className="font-normal opacity-70 ml-1.5">
+              {section.open_seats}/{section.total_seats}
+            </span>
+          </Badge>
+          {hasWaitlist && (
+            <p className="text-[11px] text-muted-foreground">
+              WL: {section.waitlist_count}/{section.waitlist_size}
+            </p>
           )}
-        >
-          {hasOpenSeats ? "OPEN" : "FULL"}
-          <span className="font-normal opacity-70 ml-1.5">
-            ({section.open_seats}/{section.total_seats})
-          </span>
-        </Badge>
+        </div>
       </TableCell>
-      <TableCell className="text-right">
+      <TableCell className="py-3.5 pr-4 text-right">
         <div className="flex items-center justify-end gap-1">
           {onToggleHistory && (
             <TooltipProvider delayDuration={100}>

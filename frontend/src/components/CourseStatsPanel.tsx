@@ -56,7 +56,7 @@ const CourseStatsPanel: React.FC<CourseStatsPanelProps> = ({ termId, courseCode,
   // Don't render anything if loading and no data
   if (isLoading) {
     return (
-      <div className="mb-6 border border-border/40 bg-muted/20 rounded-xl backdrop-blur-sm p-4 animate-pulse">
+      <div className="border border-border/50 bg-muted/20 rounded-xl backdrop-blur-sm p-4 animate-pulse">
         <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-8">
             <div className="flex items-center gap-3">
@@ -93,7 +93,7 @@ const CourseStatsPanel: React.FC<CourseStatsPanelProps> = ({ termId, courseCode,
   const hasWatchedSections = request_stats.most_watched_sections.length > 0;
 
   return (
-    <div className="mb-6 border border-border/40 bg-muted/20 rounded-xl backdrop-blur-sm animate-in fade-in slide-in-from-top-2 duration-300 p-4">
+    <div className="border border-border/50 bg-muted/20 rounded-xl backdrop-blur-sm animate-in fade-in slide-in-from-top-2 duration-300 p-4 sm:p-5">
       <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         {/* Main Metrics */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-8">

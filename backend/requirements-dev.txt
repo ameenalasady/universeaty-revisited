@@ -3,3 +3,6 @@
 
 # Ruff: fast Python linter + formatter (replaces flake8, isort, black)
 ruff>=0.11.0
+
+# Testing
+pytest>=9.0.0

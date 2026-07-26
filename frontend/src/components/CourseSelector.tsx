@@ -11,7 +11,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Loader2, ChevronsUpDown, Check } from "lucide-react";
+import { Loader2, ChevronsUpDown, Check, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCourseSelection } from "@/hooks/useCourseSelection";
 
@@ -107,8 +107,14 @@ export const CourseSelector: React.FC = () => {
   const isDisabled = !selectedTerm || isLoading || (!courses && !isError);
 
   return (
-    <div className="space-y-1.5">
-      <Label htmlFor="course-select-button">Course</Label>
+    <div className="space-y-2">
+      <Label
+        htmlFor="course-select-button"
+        className="flex items-center gap-1.5 text-sm font-medium"
+      >
+        <BookOpen className="h-3.5 w-3.5 text-muted-foreground" />
+        Course
+      </Label>
       <Popover open={isCoursePopoverOpen} onOpenChange={setIsCoursePopoverOpen}>
         <PopoverTrigger asChild>
           <Button
@@ -117,7 +123,7 @@ export const CourseSelector: React.FC = () => {
             role="combobox"
             aria-expanded={isCoursePopoverOpen}
             className={cn(
-              "w-full justify-between",
+              "w-full justify-between h-11 rounded-lg px-3.5 font-normal",
               isError && "border-destructive/50 text-destructive"
             )}
             disabled={isDisabled}

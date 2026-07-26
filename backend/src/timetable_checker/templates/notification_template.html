@@ -472,6 +472,91 @@
               >(as of {{ check_time_str }})</span
             >
           </div>
+          {% if teacher %}
+          <div
+            class="detail-item"
+            style="margin-bottom: 12px; line-height: 1.5"
+          >
+            <strong
+              class="label"
+              style="
+                display: block;
+                font-weight: 600;
+                color: #555555;
+                margin-bottom: 3px;
+                font-size: 0.9em;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+              "
+              >Instructor:</strong
+            >
+            <span class="value" style="color: #111111; display: inline-block"
+              >{{ teacher }}</span
+            >
+          </div>
+          {% endif %} {% if schedule %}
+          <div
+            class="detail-item"
+            style="margin-bottom: 12px; line-height: 1.5"
+          >
+            <strong
+              class="label"
+              style="
+                display: block;
+                font-weight: 600;
+                color: #555555;
+                margin-bottom: 3px;
+                font-size: 0.9em;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+              "
+              >Schedule:</strong
+            >
+            <span class="value" style="color: #111111; display: inline-block"
+              >{{ schedule }}</span
+            >
+          </div>
+          {% endif %} {% if location %}
+          <div
+            class="detail-item"
+            style="margin-bottom: 12px; line-height: 1.5"
+          >
+            <strong
+              class="label"
+              style="
+                display: block;
+                font-weight: 600;
+                color: #555555;
+                margin-bottom: 3px;
+                font-size: 0.9em;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+              "
+              >Location:</strong
+            >
+            <span class="value" style="color: #111111; display: inline-block"
+              >{{ location }}</span
+            >
+          </div>
+          {% endif %} {% if is_online %}
+          <div
+            class="detail-item"
+            style="margin-bottom: 12px; line-height: 1.5"
+          >
+            <span
+              style="
+                display: inline-block;
+                background-color: #e0f2fe;
+                color: #0369a1;
+                padding: 4px 12px;
+                border-radius: 4px;
+                font-size: 0.85em;
+                font-weight: 600;
+              "
+              >Online Section</span
+            >
+          </div>
+          {% endif %}
         </div>
 
         <!-- Action Box -->

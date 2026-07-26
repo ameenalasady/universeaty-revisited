@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Term } from "@/services/api";
+import { CalendarDays } from "lucide-react";
 import { useCourseSelection } from "@/hooks/useCourseSelection";
 
 export const TermSelector: React.FC = () => {
@@ -33,20 +34,27 @@ export const TermSelector: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="space-y-1.5">
-        <Label htmlFor="term-select">Term</Label>
-        <Skeleton className="h-10 w-full" />
+      <div className="space-y-2">
+        <Label htmlFor="term-select" className="flex items-center gap-1.5 text-sm font-medium">
+          <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+          Term
+        </Label>
+        <Skeleton className="h-11 w-full rounded-lg" />
       </div>
     );
   }
 
   if (isError) {
     return (
-      <div className="space-y-1.5">
-        <Label htmlFor="term-select" className="text-destructive">
+      <div className="space-y-2">
+        <Label
+          htmlFor="term-select"
+          className="flex items-center gap-1.5 text-sm font-medium text-destructive"
+        >
+          <CalendarDays className="h-3.5 w-3.5" />
           Term
         </Label>
-        <div className="h-10 w-full flex items-center justify-center border border-destructive/50 rounded-md text-destructive text-sm px-3">
+        <div className="h-11 w-full flex items-center justify-center border border-destructive/50 rounded-lg text-destructive text-sm px-3">
           Error: {error?.message || "Failed to load terms"}
         </div>
       </div>
@@ -55,10 +63,17 @@ export const TermSelector: React.FC = () => {
 
   if (!terms || terms.length === 0) {
     return (
-      <div className="space-y-1.5">
-        <Label htmlFor="term-select">Term</Label>
+      <div className="space-y-2">
+        <Label htmlFor="term-select" className="flex items-center gap-1.5 text-sm font-medium">
+          <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+          Term
+        </Label>
         <Select disabled name="term-select">
-          <SelectTrigger id="term-select" className="w-full" aria-label="No Terms Available">
+          <SelectTrigger
+            id="term-select"
+            className="w-full !h-11 rounded-lg px-3.5"
+            aria-label="No Terms Available"
+          >
             <SelectValue placeholder="No terms available" />
           </SelectTrigger>
         </Select>
@@ -67,15 +82,22 @@ export const TermSelector: React.FC = () => {
   }
 
   return (
-    <div className="space-y-1.5">
-      <Label htmlFor="term-select">Term</Label>
+    <div className="space-y-2">
+      <Label htmlFor="term-select" className="flex items-center gap-1.5 text-sm font-medium">
+        <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+        Term
+      </Label>
       <Select
         onValueChange={setSelectedTerm}
         value={selectedTerm}
         disabled={terms.length === 0}
         name="term-select"
       >
-        <SelectTrigger id="term-select" className="w-full" aria-label="Select Term">
+        <SelectTrigger
+          id="term-select"
+          className="w-full !h-11 rounded-lg px-3.5"
+          aria-label="Select Term"
+        >
           <SelectValue placeholder="Select a term..." />
         </SelectTrigger>
         <SelectContent>

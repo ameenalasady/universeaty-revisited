@@ -163,13 +163,27 @@ def create_notification_email(
     section_key: str,
     open_seats: int,
     request_id: int,
+    teacher: str | None = None,
+    schedule: str | None = None,
+    location: str | None = None,
+    is_online: bool = False,
 ) -> tuple[str, str] | None:
     """
     Generates the subject and HTML body for the course availability notification email
     using the Jinja2 templating engine.
 
     Args:
-        (Arguments remain the same)
+        course_code: The course code (e.g., "COMPSCI 1JC3").
+        term_name: The term name (e.g., "Winter 2025").
+        term_id: The term ID.
+        section_display: The section display name (e.g., "LEC C01").
+        section_key: The section key.
+        open_seats: Number of open seats.
+        request_id: The watch request ID.
+        teacher: Optional instructor name.
+        schedule: Optional formatted schedule string (e.g., "Mon 08:30-09:20").
+        location: Optional room/location string.
+        is_online: Whether the section is offered online.
 
     Returns:
         A tuple containing (subject, html_body) if successful, otherwise None.
@@ -201,6 +215,10 @@ def create_notification_email(
         "check_time_str": check_time_str,
         "request_id": request_id,
         "SPECIFIC_MYTIMETABLE_URL": specific_mytimetable_url,
+        "teacher": teacher,
+        "schedule": schedule,
+        "location": location,
+        "is_online": is_online,
     }
 
     try:

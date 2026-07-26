@@ -24,6 +24,7 @@ import threading
 import time
 from datetime import UTC, datetime, timedelta
 from functools import wraps
+from typing import Any
 
 import jwt
 import requests
@@ -260,6 +261,11 @@ def add_caching_headers(response):
             # Course details (especially seats) change frequently
             response.headers["Cache-Control"] = (
                 "public, max-age=60"  # Cache for 1 minute
+            )
+        elif path == "/termbundle":
+            # Termbundle labels (academic groups, attributes, holidays) change infrequently
+            response.headers["Cache-Control"] = (
+                "public, max-age=3600"  # Cache for 1 hour
             )
         else:
             # Default for other successful GET requests: force revalidation
@@ -712,6 +718,32 @@ def get_terms():
         return jsonify({"error": "An internal error occurred retrieving terms."}), 500
 
 
+@app.route("/termbundle", methods=["GET"])
+@limiter.limit("30 per minute; 5 per second")
+def get_termbundle():
+    """
+    Endpoint: GET /termbundle
+    Purpose: Returns academic group names, course attribute labels, and holiday schedules.
+    Rate Limit: 30 requests per minute; 5 per second per IP.
+    Responses:
+        - 200 OK: JSON object with academic_groups, course_attributes, holiday_schedules.
+        - 503 Service Unavailable: If the timetable client is not initialized.
+    Cache: Public, 1 hour max-age.
+    """
+    active_client = get_client_or_abort()
+    if isinstance(active_client, tuple):
+        return active_client
+
+    try:
+        tb = active_client.get_termbundle()
+        return jsonify(tb)
+    except Exception as e:
+        log.error(f"Error in /termbundle endpoint: {e}", exc_info=True)
+        return jsonify(
+            {"error": "An internal error occurred retrieving termbundle data."}
+        ), 500
+
+
 @app.route("/terms/<string:term_id>/courses", methods=["GET"])
 @limiter.limit("60 per minute; 5 per second")
 def get_term_courses(term_id):
@@ -797,7 +829,7 @@ def fetch_course_details(term_id, course_code):
         return jsonify({"error": "Invalid term ID format. Must be numeric."}), 400
 
     # Basic validation for course code format (allows letters, numbers, spaces, hyphens)
-    if not course_code or not re.match(r"^[A-Za-z0-9\s\-]+$", course_code.strip()):
+    if not course_code or not re.match(r"^[A-Za-z0-9 -]+$", course_code.strip()):
         log.warning(f"Invalid course code format received: '{course_code}'")
         return jsonify({"error": "Invalid course code format."}), 400
 
@@ -843,13 +875,14 @@ def fetch_course_details(term_id, course_code):
         log.info(
             f"Fetching details for course '{normalized_course_code}' in term {term_id}."
         )
-        # Original approach assumed client had a unified fetch method, let's keep that assumption for now
-        # If the client's internal method is fetch_course_details which uses the fetcher:
-        details = active_client.fetcher.fetch_course_details(
+        # Use fetch_course_details_full to get offering metadata + combinations
+        full_details = active_client.fetcher.fetch_course_details_full(
             term_id, [normalized_course_code]
-        )  # Using fetcher directly, as before
+        )
 
-        course_detail_data = details.get(normalized_course_code)
+        course_result = full_details.get(normalized_course_code)
+        course_detail_data = course_result.get("sections") if course_result else None
+        offering = course_result.get("offering") if course_result else None
 
         # Check if details were found (handles empty results or API issues for that specific course)
         # The current check `if not course_detail_data:` correctly handles {} or {course_code: {}}
@@ -864,8 +897,25 @@ def fetch_course_details(term_id, course_code):
                 }
             ), 404
 
-        # log.debug(f"Successfully retrieved details for {normalized_course_code} (Term {term_id}): {course_detail_data}") # Optional debug log
-        return jsonify(course_detail_data)
+        # Build the response: sections keyed by block type + offering metadata
+        response_body: dict[str, Any] = dict(course_detail_data)
+        if offering and offering.get("title"):
+            if "offering" in response_body:
+                log.warning(
+                    "Course detail response contains a block type named 'offering'; "
+                    "skipping offering metadata to avoid overwriting section data."
+                )
+            else:
+                response_body["offering"] = offering
+            # Cache the offering in storage for future use
+            try:
+                active_client.storage.upsert_course_offering(
+                    term_id, normalized_course_code, offering
+                )
+            except Exception:
+                log.debug("Failed to cache offering (non-critical)", exc_info=True)
+
+        return jsonify(response_body)
 
     except Exception as e:  # General exception catch remains
         log.error(
@@ -1347,7 +1397,7 @@ def get_course_stats(term_id, course_code):
     if not term_id.isdigit():
         return jsonify({"error": "Invalid term ID format. Must be numeric."}), 400
 
-    if not course_code or not re.match(r"^[A-Za-z0-9\s\-]+$", course_code.strip()):
+    if not course_code or not re.match(r"^[A-Za-z0-9 -]+$", course_code.strip()):
         return jsonify({"error": "Invalid course code format."}), 400
 
     normalized_course_code = " ".join(course_code.strip().upper().split())
@@ -1424,7 +1474,7 @@ def get_section_history(term_id, course_code, section_key):
     if not term_id.isdigit():
         return jsonify({"error": "Invalid term ID format. Must be numeric."}), 400
 
-    if not course_code or not re.match(r"^[A-Za-z0-9\s\-]+$", course_code.strip()):
+    if not course_code or not re.match(r"^[A-Za-z0-9 -]+$", course_code.strip()):
         return jsonify({"error": "Invalid course code format."}), 400
 
     if not section_key or not section_key.strip():

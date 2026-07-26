@@ -1,6 +1,8 @@
 # src/timetable_checker/timetable_client.py
 
 import concurrent.futures
+import copy
+import json
 import logging
 import queue
 import re
@@ -41,9 +43,35 @@ from .exceptions import (
     TermNotFoundError,
 )
 from .request_storage import RequestStorage
-from .timetable_fetcher import SectionInfo, TermInfo, TimetableFetcher
+from .timetable_fetcher import (
+    SectionInfo,
+    TermbundleData,
+    TermInfo,
+    TimetableFetcher,
+)
 
 log = logging.getLogger(__name__)
+
+
+def _format_timeblocks_for_email(timeblocks: list[dict[str, Any]] | None) -> str | None:
+    """Format timeblocks into a human-readable schedule string for email."""
+    if not timeblocks:
+        return None
+    grouped: dict[str, list[str]] = {}
+    for tb in timeblocks:
+        day_name = tb.get("day_name", "")
+        start = tb.get("start", "")
+        end = tb.get("end", "")
+        if not day_name or not start or not end:
+            continue
+        if day_name not in grouped:
+            grouped[day_name] = []
+        time_range = f"{start}\u2013{end}"
+        if time_range not in grouped[day_name]:
+            grouped[day_name].append(time_range)
+    if not grouped:
+        return None
+    return " | ".join(f"{day} {', '.join(times)}" for day, times in grouped.items())
 
 
 # --- McMaster Timetable Orchestrator Client Class ---
@@ -89,6 +117,12 @@ class McMasterTimetableClient:
         self.courses_lock = (
             threading.Lock()
         )  # Lock for accessing/modifying courses dict
+
+        # Termbundle label cache (academic groups, course attrs, holidays)
+        self.termbundle: TermbundleData = TermbundleData(
+            academic_groups={}, course_attributes={}, holiday_schedules={}
+        )
+        self.termbundle_lock = threading.Lock()
 
         # Notification queue + worker control
         self.notification_queue: queue.Queue[dict[str, Any]] = queue.Queue()
@@ -172,6 +206,22 @@ class McMasterTimetableClient:
             f"Finished fetching initial courses for {len(self.courses)} terms. Total unique courses: {total_courses}. (Took {time.time() - start_time:.2f}s)"
         )
 
+        # Fetch termbundle labels
+        log.info(
+            "Fetching termbundle for academic groups, course attributes, holidays..."
+        )
+        try:
+            tb = self.fetcher.fetch_termbundle()
+            with self.termbundle_lock:
+                self.termbundle = tb
+            log.info(
+                f"Termbundle loaded: {len(tb['academic_groups'])} academic groups, "
+                f"{len(tb['course_attributes'])} course attributes, "
+                f"{len(tb['holiday_schedules'])} holiday schedules."
+            )
+        except Exception:
+            log.exception("Failed to fetch termbundle during initialization.")
+
     def get_terms(self) -> list[TermInfo]:
         """Returns a thread-safe copy of the currently known list of terms from cache."""
         with self.terms_lock:
@@ -202,6 +252,11 @@ class McMasterTimetableClient:
             else:
                 # Return a deep copy of the dictionary
                 return {k: v.copy() for k, v in self.courses.items()}
+
+    def get_termbundle(self) -> TermbundleData:
+        """Returns a thread-safe copy of the current termbundle label cache."""
+        with self.termbundle_lock:
+            return copy.deepcopy(self.termbundle)  # type: ignore[return-value]
 
     def add_course_watch_request(
         self, email: str, term_id: str, course_code: str, section_key: str
@@ -591,15 +646,24 @@ class McMasterTimetableClient:
                             sections_list_snap,
                         ) in course_sections_snap.items():
                             for section_info_snap in sections_list_snap:
-                                snapshot_batch.append(
-                                    {
-                                        "term_id": term_id,
-                                        "course_code": course_code_snap,
-                                        "section_key": section_info_snap["key"],
-                                        "open_seats": section_info_snap["open_seats"],
-                                        "total_seats": section_info_snap["total_seats"],
-                                    }
-                                )
+                                snap: dict[str, Any] = {
+                                    "term_id": term_id,
+                                    "course_code": course_code_snap,
+                                    "section_key": section_info_snap["key"],
+                                    "open_seats": section_info_snap["open_seats"],
+                                    "total_seats": section_info_snap["total_seats"],
+                                }
+                                # Include extended fields if present
+                                wl = section_info_snap.get("waitlist_size")
+                                if wl is not None:
+                                    snap["waitlist_size"] = wl
+                                rc = section_info_snap.get("reserved_caps")
+                                if rc is not None:
+                                    snap["reserved_caps_json"] = json.dumps(rc)
+                                at = section_info_snap.get("attrs")
+                                if at is not None:
+                                    snap["attrs_json"] = json.dumps(at)
+                                snapshot_batch.append(snap)
                     if snapshot_batch:
                         self.storage.record_seat_snapshots_batch(snapshot_batch)
                 except Exception:
@@ -627,12 +691,14 @@ class McMasterTimetableClient:
                     course_sections = term_course_details[course_code]
                     section_exists = False
                     current_open_seats = -1
+                    matched_section: SectionInfo | None = None
 
                     for _block_type, sections_list in course_sections.items():
                         for section_info in sections_list:
                             if section_info["key"] == section_key:
                                 section_exists = True
                                 current_open_seats = section_info["open_seats"]
+                                matched_section = section_info
                                 break
                         if section_exists:
                             break
@@ -700,6 +766,27 @@ class McMasterTimetableClient:
                         )
 
                         try:
+                            # Extract rich section details for the email
+                            email_teacher = (
+                                matched_section.get("teacher")
+                                if matched_section
+                                else None
+                            )
+                            email_location = (
+                                matched_section.get("location")
+                                if matched_section
+                                else None
+                            )
+                            email_schedule = _format_timeblocks_for_email(
+                                matched_section.get("timeblocks")
+                                if matched_section
+                                else None
+                            )
+                            email_is_online = False
+                            if matched_section:
+                                attrs = matched_section.get("attrs", {})
+                                email_is_online = bool(attrs.get("ONLN"))
+
                             email_content = email_utils.create_notification_email(
                                 course_code=course_code,
                                 term_name=term_name,
@@ -708,6 +795,10 @@ class McMasterTimetableClient:
                                 section_key=section_key,
                                 open_seats=current_open_seats,
                                 request_id=req_id,
+                                teacher=email_teacher,
+                                schedule=email_schedule,
+                                location=email_location,
+                                is_online=email_is_online,
                             )
 
                             if email_content:
@@ -1116,6 +1207,16 @@ class McMasterTimetableClient:
                         "Updater: Unhandled error during course update process."
                     )
                     # course_update_check_completed remains False
+
+            # --- 3. Refresh Termbundle Labels ---
+            try:
+                log.debug("Updater: Refreshing termbundle labels...")
+                tb = self.fetcher.fetch_termbundle()
+                with self.termbundle_lock:
+                    self.termbundle = tb
+                log.debug("Updater: Termbundle labels refreshed successfully.")
+            except Exception:
+                log.exception("Updater: Error refreshing termbundle labels.")
 
             # --- Cycle Finish ---
             duration = time.time() - start_time

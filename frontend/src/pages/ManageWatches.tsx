@@ -154,11 +154,13 @@ export const ManageWatches: React.FC = () => {
 
   if (step === "authenticated") {
     return (
-      <Card className="my-6 border-border/40 bg-card/30 backdrop-blur-sm">
-        <CardHeader className="flex flex-row items-center justify-between pb-6 border-b border-border/30 px-4 sm:px-6">
-          <div>
-            <CardTitle className="text-2xl font-bold">Manage Your Watches</CardTitle>
-            <CardDescription className="text-sm mt-1">
+      <Card className="border-border/50 bg-card/40 py-0 shadow-sm backdrop-blur-sm overflow-hidden">
+        <CardHeader className="flex flex-col gap-4 border-b border-border/40 px-4 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="space-y-1">
+            <CardTitle className="text-xl font-bold tracking-tight sm:text-2xl">
+              Manage Your Watches
+            </CardTitle>
+            <CardDescription className="text-sm">
               View and cancel your active watch requests.
             </CardDescription>
           </div>
@@ -166,12 +168,12 @@ export const ManageWatches: React.FC = () => {
             variant="outline"
             size="sm"
             onClick={() => logoutMutation.mutate()}
-            className="ml-4 rounded-lg px-4 border-border/50 hover:bg-destructive/5 hover:text-destructive hover:border-destructive/30 transition-colors"
+            className="w-full shrink-0 rounded-lg border-border/50 px-4 transition-colors hover:border-destructive/30 hover:bg-destructive/5 hover:text-destructive sm:w-auto"
           >
             <LogOut className="h-4 w-4 mr-2" /> Logout
           </Button>
         </CardHeader>
-        <CardContent className="px-4 sm:px-6 pt-8">
+        <CardContent className="px-4 py-6 sm:px-6">
           <WatchDashboard />
         </CardContent>
       </Card>
@@ -179,22 +181,20 @@ export const ManageWatches: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center py-8 sm:py-12">
-      <Card className="w-full max-w-md border-border/40 bg-card/30 backdrop-blur-sm overflow-hidden">
-        <div className="p-8 sm:p-0">
-          <CardHeader className="text-center sm:pt-8">
-            <div className="mx-auto bg-primary/10 w-14 h-14 rounded-xl flex items-center justify-center mb-4">
-              <Eye className="h-7 w-7 text-primary" />
-            </div>
-            <CardTitle className="text-2xl font-bold tracking-tight">Manage Watches</CardTitle>
-            <CardDescription className="text-sm mt-2 px-4">
-              {step === "email"
-                ? "Enter your email to receive a secure access code."
-                : "Enter the code sent to your email."}
-            </CardDescription>
-          </CardHeader>
-        </div>
-        <CardContent className="p-6 sm:p-8">
+    <div className="flex flex-col items-center justify-center py-6 sm:py-10">
+      <Card className="w-full max-w-md border-border/50 bg-card/40 shadow-sm backdrop-blur-sm">
+        <CardHeader className="items-center pt-8 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20">
+            <Eye className="h-7 w-7 text-primary" />
+          </div>
+          <CardTitle className="text-2xl font-bold tracking-tight">Manage Watches</CardTitle>
+          <CardDescription className="mt-2 max-w-xs text-sm leading-relaxed">
+            {step === "email"
+              ? "Enter your email to receive a secure access code."
+              : "Enter the code sent to your email."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-6 pb-8 pt-2 sm:px-8">
           {step === "email" ? (
             <form onSubmit={handleRequestCode} className="space-y-5">
               <div className="space-y-2">

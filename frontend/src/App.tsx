@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { Toaster } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { GraduationCap } from "lucide-react";
 
 // Import components
 import Header from "./components/Header";
@@ -47,29 +47,35 @@ function App() {
   return (
     <TooltipProvider>
       <CourseSelectionProvider>
-        <div className="container mx-auto p-4 md:p-8 lg:p-12 min-h-[100dvh] flex flex-col">
+        <div className="mx-auto flex min-h-[100dvh] w-full max-w-5xl flex-col px-4 sm:px-6 lg:px-8">
           <Toaster richColors position="top-right" theme="system" closeButton />
           <Header currentView={view} onViewChange={setView} />
-          <Separator className="mb-2" />
 
-          <main className="flex-grow">
+          <main className="flex-grow py-6 sm:py-8">
             {view === "home" ? (
-              <>
-                <Card className="my-6 border-border/40 bg-card/30 backdrop-blur-sm">
+              <div className="space-y-6">
+                <Card className="border-border/50 bg-card/40 shadow-sm backdrop-blur-sm">
                   <CardHeader>
-                    <CardTitle>Course Selection</CardTitle>
-                    <CardDescription>
-                      Choose a term and then select the course you're interested in.
-                    </CardDescription>
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
+                        <GraduationCap className="h-4 w-4" />
+                      </span>
+                      <div className="flex flex-col gap-1">
+                        <CardTitle className="text-lg">Course Selection</CardTitle>
+                        <CardDescription>
+                          Choose a term, then pick the course you're interested in.
+                        </CardDescription>
+                      </div>
+                    </div>
                   </CardHeader>
-                  <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                  <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5">
                     <TermSelector />
                     <CourseSelector />
                   </CardContent>
                 </Card>
 
                 <CourseDetailsDisplay />
-              </>
+              </div>
             ) : (
               <ManageWatches />
             )}

@@ -26,16 +26,53 @@ export interface Term {
   name: string;
 }
 
+export interface TimeblockInfo {
+  day: number;
+  day_name: string;
+  start: string;
+  end: string;
+  start_minutes: number;
+  end_minutes: number;
+}
+
+export interface ReservedCap {
+  d1: number;
+  cap: number;
+  seq: number;
+  desc: string;
+}
+
 export interface CourseDetailsSection {
   block_type: string;
   key: string;
   open_seats: number;
   total_seats: number;
   section: string;
+  // Extended fields (optional for backward compat)
+  teacher?: string;
+  location?: string;
+  credits?: number;
+  waitlist_size?: number;
+  waitlist_count?: number;
+  is_full?: boolean;
+  timeblocks?: TimeblockInfo[];
+  attrs?: Record<string, string[]>;
+  reserved_caps?: ReservedCap[];
+}
+
+export interface CourseOffering {
+  title: string;
+  description: string;
+  credits: number;
+  academic_group: string;
+  academic_career: string;
+  instructor: string;
+  combinations: string[][];
 }
 
 export interface CourseDetails {
-  [blockType: string]: CourseDetailsSection[]; // Maps block type (e.g., "LEC") to sections
+  [blockType: string]: CourseDetailsSection[] | CourseOffering | undefined;
+  offering?: CourseOffering;
 }
 
 export interface WatchRequestPayload {
@@ -137,6 +174,22 @@ export const getApiHealth = async (): Promise<{ status: string }> => {
 export const getTerms = async (): Promise<Term[]> => {
   const response = await fetch(`${API_BASE_URL}/terms`);
   return handleResponse<Term[]>(response);
+};
+
+// === Termbundle ===
+
+export interface TermbundleData {
+  academic_groups: Record<string, string>;
+  course_attributes: Record<
+    string,
+    { name: string; description: string; values?: Record<string, string> }
+  >;
+  holiday_schedules: Record<string, Record<string, string>>;
+}
+
+export const getTermbundle = async (): Promise<TermbundleData> => {
+  const response = await fetch(`${API_BASE_URL}/termbundle`);
+  return handleResponse<TermbundleData>(response);
 };
 
 /**
@@ -297,6 +350,7 @@ export const addBatchWatchRequest = async (
 export interface SeatSnapshot {
   open_seats: number;
   total_seats: number;
+  waitlist_size?: number;
   recorded_at: string;
 }
 
@@ -305,6 +359,7 @@ export interface SectionStats {
   times_opened: number;
   max_open_seats: number;
   last_opened_at: string | null;
+  last_waitlist_size?: number | null;
 }
 
 export interface MostWatchedSection {

@@ -6,6 +6,7 @@ import {
   addWatchRequest,
   getCourseStats,
   getSectionHistory,
+  getTermbundle,
   Term,
   CourseDetails,
   WatchRequestPayload,
@@ -14,6 +15,7 @@ import {
   WatchBatchResponse,
   CourseStatsResponse,
   SectionHistoryResponse,
+  TermbundleData,
   addBatchWatchRequest,
   ApiError,
 } from "@/services/api";
@@ -104,6 +106,15 @@ export const useSectionHistory = (
     queryFn: () => getSectionHistory(termId!, courseCode!, sectionKey!, hours),
     enabled: !!termId && !!courseCode && !!sectionKey && enabled,
     staleTime: 1000 * 60 * 1, // Cache for 1 minute
+    refetchOnWindowFocus: false,
+  });
+};
+
+export const useTermbundle = () => {
+  return useQuery<TermbundleData, ApiError | Error>({
+    queryKey: ["termbundle"],
+    queryFn: getTermbundle,
+    staleTime: 1000 * 60 * 60, // Cache for 1 hour
     refetchOnWindowFocus: false,
   });
 };

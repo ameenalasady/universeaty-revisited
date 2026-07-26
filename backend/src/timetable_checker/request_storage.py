@@ -1,6 +1,7 @@
 # src/timetable_checker/request_storage.py
 
 import hashlib
+import json
 import logging
 import os
 import sqlite3
@@ -43,6 +44,12 @@ class RequestStorage:
         self.db_lock = threading.Lock()  # Ensures thread-safe database access
         self._init_db()
         log.info(f"RequestStorage initialized with database path: {self.db_path}")
+
+    @staticmethod
+    def _column_exists(cursor: sqlite3.Cursor, table: str, column: str) -> bool:
+        """Check if a column already exists in the given table."""
+        cursor.execute(f"PRAGMA table_info({table})")
+        return any(row[1] == column for row in cursor.fetchall())
 
     def _init_db(self):
         """
@@ -103,12 +110,13 @@ class RequestStorage:
                     "notify_fail_count INTEGER NOT NULL DEFAULT 0",
                     "last_notify_attempt_at TIMESTAMP",
                 ):
-                    try:
+                    column_name = column_def.split()[0]
+                    if not self._column_exists(
+                        cursor, self.WATCH_REQUESTS_TABLE, column_name
+                    ):
                         cursor.execute(
                             f"ALTER TABLE {self.WATCH_REQUESTS_TABLE} ADD COLUMN {column_def}"
                         )
-                    except sqlite3.OperationalError:
-                        pass  # column already exists
 
                 # --- Seat Snapshots Table ---
                 cursor.execute(f"""
@@ -127,6 +135,41 @@ class RequestStorage:
                 )
                 cursor.execute(
                     f"CREATE INDEX IF NOT EXISTS idx_snapshots_cleanup ON {self.SEAT_SNAPSHOTS_TABLE}(recorded_at)"
+                )
+
+                # --- Migration: seat snapshot extended columns ---
+                for column_def in (
+                    "waitlist_size INTEGER",
+                    "reserved_caps_json TEXT",
+                    "attrs_json TEXT",
+                ):
+                    column_name = column_def.split()[0]
+                    if not self._column_exists(
+                        cursor, self.SEAT_SNAPSHOTS_TABLE, column_name
+                    ):
+                        cursor.execute(
+                            f"ALTER TABLE {self.SEAT_SNAPSHOTS_TABLE} ADD COLUMN {column_def}"
+                        )
+
+                # --- Course Offerings Table ---
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS course_offerings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        term_id TEXT NOT NULL,
+                        course_code TEXT NOT NULL,
+                        title TEXT,
+                        description TEXT,
+                        credits REAL,
+                        academic_group TEXT,
+                        academic_career TEXT,
+                        instructor TEXT,
+                        combinations_json TEXT,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(term_id, course_code)
+                    )
+                """)
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_offerings_lookup ON course_offerings(term_id, course_code)"
                 )
 
                 # --- Auth Tokens Table ---
@@ -719,9 +762,19 @@ class RequestStorage:
 
                     cursor.execute(
                         f"""INSERT INTO {self.SEAT_SNAPSHOTS_TABLE}
-                            (term_id, course_code, section_key, open_seats, total_seats)
-                            VALUES (?, ?, ?, ?, ?)""",
-                        (term_id, course_code, section_key, open_seats, total_seats),
+                            (term_id, course_code, section_key, open_seats, total_seats,
+                             waitlist_size, reserved_caps_json, attrs_json)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            term_id,
+                            course_code,
+                            section_key,
+                            open_seats,
+                            total_seats,
+                            snap.get("waitlist_size"),
+                            snap.get("reserved_caps_json"),
+                            snap.get("attrs_json"),
+                        ),
                     )
                     inserted_count += 1
 
@@ -794,7 +847,7 @@ class RequestStorage:
                 # value forward fabricates a data point whose timestamp shifts with the
                 # selected range.
                 cursor.execute(
-                    f"""SELECT open_seats, total_seats, datetime('now', ?) as recorded_at
+                    f"""SELECT open_seats, total_seats, waitlist_size, datetime('now', ?) as recorded_at
                         FROM {self.SEAT_SNAPSHOTS_TABLE}
                         WHERE term_id = ? AND course_code = ? AND section_key = ?
                         AND recorded_at < datetime('now', ?)
@@ -831,7 +884,7 @@ class RequestStorage:
                     # matched nothing, returning only the last row).
                     step = -(-total_count // max_points)
                     cursor.execute(
-                        f"""SELECT open_seats, total_seats, recorded_at FROM (
+                        f"""SELECT open_seats, total_seats, waitlist_size, recorded_at FROM (
                                 SELECT *, ROW_NUMBER() OVER (ORDER BY recorded_at) as rn
                                 FROM {self.SEAT_SNAPSHOTS_TABLE}
                                 WHERE term_id = ? AND course_code = ? AND section_key = ?
@@ -857,7 +910,7 @@ class RequestStorage:
                     )
                 elif total_count > 0:
                     cursor.execute(
-                        f"""SELECT open_seats, total_seats, recorded_at
+                        f"""SELECT open_seats, total_seats, waitlist_size, recorded_at
                             FROM {self.SEAT_SNAPSHOTS_TABLE}
                             WHERE term_id = ? AND course_code = ? AND section_key = ?
                             AND recorded_at >= datetime('now', ?)
@@ -899,6 +952,7 @@ class RequestStorage:
             "times_opened": 0,
             "max_open_seats": 0,
             "last_opened_at": None,
+            "last_waitlist_size": None,
         }
         with self.db_lock:
             conn = None
@@ -946,6 +1000,19 @@ class RequestStorage:
                     prev_open = current_open
                 stats["times_opened"] = times_opened
                 stats["last_opened_at"] = last_opened_at
+
+                # Latest waitlist size
+                cursor.execute(
+                    f"""SELECT waitlist_size FROM {self.SEAT_SNAPSHOTS_TABLE}
+                        WHERE term_id = ? AND course_code = ? AND section_key = ?
+                        AND recorded_at >= datetime('now', ?)
+                        AND waitlist_size IS NOT NULL
+                        ORDER BY recorded_at DESC LIMIT 1""",
+                    (term_id, course_code, section_key, f"-{hours} hours"),
+                )
+                wl_row = cursor.fetchone()
+                if wl_row:
+                    stats["last_waitlist_size"] = wl_row["waitlist_size"]
 
             except sqlite3.Error as e:
                 log.error(f"Storage: Error computing section stats: {e}", exc_info=True)
@@ -1262,6 +1329,52 @@ class RequestStorage:
             except sqlite3.Error as e:
                 log.error(f"Storage: Error cancelling request {request_id}: {e}")
                 return False
+            finally:
+                if conn:
+                    conn.close()
+
+    # --- Course Offerings Methods ---
+
+    def upsert_course_offering(
+        self, term_id: str, course_code: str, offering: dict[str, Any]
+    ) -> None:
+        """Insert or update a course offering cache entry."""
+        with self.db_lock:
+            conn = None
+            try:
+                conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                cursor = conn.cursor()
+                cursor.execute(
+                    """INSERT INTO course_offerings
+                        (term_id, course_code, title, description, credits,
+                         academic_group, academic_career, instructor, combinations_json, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        ON CONFLICT(term_id, course_code) DO UPDATE SET
+                            title=excluded.title,
+                            description=excluded.description,
+                            credits=excluded.credits,
+                            academic_group=excluded.academic_group,
+                            academic_career=excluded.academic_career,
+                            instructor=excluded.instructor,
+                            combinations_json=excluded.combinations_json,
+                            updated_at=CURRENT_TIMESTAMP""",
+                    (
+                        term_id,
+                        course_code,
+                        offering.get("title"),
+                        offering.get("description"),
+                        offering.get("credits"),
+                        offering.get("academic_group"),
+                        offering.get("academic_career"),
+                        offering.get("instructor"),
+                        json.dumps(offering.get("combinations", [])),
+                    ),
+                )
+                conn.commit()
+            except sqlite3.Error as e:
+                log.error(
+                    f"Storage: Error upserting course offering for {term_id}/{course_code}: {e}"
+                )
             finally:
                 if conn:
                     conn.close()

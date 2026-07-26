@@ -1,9 +1,10 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import {
   useCourseDetails,
   useAddWatchRequest,
   useAddBatchWatchRequest,
   useTerms,
+  useTermbundle,
 } from "@/hooks/useCourseData";
 import { useCourseSelection } from "@/hooks/useCourseSelection";
 import CourseDetailsSkeleton from "./CourseDetailsSkeleton";
@@ -26,8 +27,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Eye, Info, Heart, X, History } from "lucide-react";
-import { CourseDetailsSection, ApiError } from "@/services/api";
+import { Eye, Info, Heart, X, History, BookMarked, Coins, User, ChevronDown } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { CourseDetailsSection, CourseOffering, ApiError } from "@/services/api";
 import { toast } from "sonner";
 import CourseDetailsEmptyState from "./CourseDetailsEmptyState";
 
@@ -44,6 +47,7 @@ export const CourseDetailsDisplay: React.FC = () => {
     error,
   } = useCourseDetails(selectedTerm, selectedCourse);
   const { data: terms } = useTerms();
+  const { data: termbundle } = useTermbundle();
 
   // --- Local UI State ---
   const [watchSection, setWatchSection] = useState<CourseDetailsSection | null>(null);
@@ -51,6 +55,12 @@ export const CourseDetailsDisplay: React.FC = () => {
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [showDonationBanner, setShowDonationBanner] = useState(false);
   const [historyHours, setHistoryHours] = useState(72);
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
+
+  // Collapse the description whenever a new course is loaded
+  useEffect(() => {
+    setIsDescriptionExpanded(false);
+  }, [selectedCourse]);
 
   // --- Donation Banner Logic ---
   const triggerDonationBanner = useCallback(() => {
@@ -80,12 +90,24 @@ export const CourseDetailsDisplay: React.FC = () => {
     return terms.find((t) => t.id === selectedTerm)?.name || "Selected Term";
   }, [terms, selectedTerm]);
 
-  const closedSections = useMemo(() => {
-    if (!courseDetails) return [];
-    return Object.values(courseDetails)
-      .flat()
-      .filter((sec) => sec.open_seats === 0);
+  const offering = useMemo(() => {
+    if (!courseDetails) return undefined;
+    return courseDetails.offering as CourseOffering | undefined;
   }, [courseDetails]);
+
+  const courseDetailEntries = useMemo(() => {
+    if (!courseDetails) return [] as [string, CourseDetailsSection[]][];
+    return Object.entries(courseDetails).filter(([key]) => key !== "offering") as [
+      string,
+      CourseDetailsSection[],
+    ][];
+  }, [courseDetails]);
+
+  const closedSections = useMemo(() => {
+    return courseDetailEntries
+      .flatMap(([, sections]) => sections)
+      .filter((sec) => sec.open_seats === 0);
+  }, [courseDetailEntries]);
 
   // --- Callbacks ---
   const handleWatchClick = useCallback((section: CourseDetailsSection) => {
@@ -180,12 +202,14 @@ export const CourseDetailsDisplay: React.FC = () => {
   // Show error card only if a course is selected and an error occurred
   if (selectedCourse && isError) {
     return (
-      <Card className="mt-6 border-border/40 bg-card/30 backdrop-blur-sm">
-        <CardHeader className="flex flex-row items-center gap-3">
-          <Info className="h-6 w-6 text-destructive" />
-          <div>
+      <Card className="border-destructive/30 bg-card/40 backdrop-blur-sm">
+        <CardHeader className="flex flex-row items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-destructive/10">
+            <Info className="h-5 w-5 text-destructive" />
+          </div>
+          <div className="space-y-1">
             <CardTitle className="text-destructive">Error Loading Details</CardTitle>
-            <CardDescription className="text-destructive/90">
+            <CardDescription>
               Could not load details for <span className="font-semibold">{selectedCourse}</span>.{" "}
               {error instanceof Error ? error.message : "Server error"}. Please try again later or
               select a different course/term.
@@ -201,13 +225,15 @@ export const CourseDetailsDisplay: React.FC = () => {
     selectedCourse &&
     !isLoading &&
     !isFetching &&
-    (!courseDetails || Object.keys(courseDetails).length === 0)
+    (!courseDetails || courseDetailEntries.length === 0)
   ) {
     return (
-      <Card className="mt-6 border-border/40 bg-card/30 backdrop-blur-sm">
-        <CardHeader className="flex flex-row items-center gap-3">
-          <Info className="h-6 w-6 text-muted-foreground" />
-          <div>
+      <Card className="border-border/50 bg-card/40 backdrop-blur-sm">
+        <CardHeader className="flex flex-row items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted/40">
+            <Info className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <div className="space-y-1">
             <CardTitle>No Sections Found</CardTitle>
             <CardDescription>
               No sections are currently listed for{" "}
@@ -221,39 +247,33 @@ export const CourseDetailsDisplay: React.FC = () => {
     );
   }
 
-  // Don't render anything if no course is selected yet
-  // or if details somehow ended up empty after successful fetch (edge case)
-  if (!courseDetails || Object.keys(courseDetails).length === 0) {
-    return null;
-  }
-
   // We have data to display
-  const courseDetailEntries = Object.entries(courseDetails);
 
   return (
     <>
       {/* Donation Banner */}
       {showDonationBanner && (
-        <div className="mt-6 bg-primary/5 border border-primary/20 p-5 lg:pr-14 rounded-xl flex flex-col lg:flex-row items-center justify-between gap-6 relative overflow-hidden transition-all duration-500 ease-in-out animate-in fade-in slide-in-from-top-4">
+        <div className="relative flex flex-col items-center justify-between gap-5 overflow-hidden rounded-xl border border-primary/20 bg-primary/5 p-5 pr-12 animate-in fade-in slide-in-from-top-4 duration-500 lg:flex-row">
           <div className="absolute top-2 right-2">
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 rounded-full hover:bg-primary/10 text-muted-foreground"
+              className="h-8 w-8 rounded-full text-muted-foreground hover:bg-primary/10"
               onClick={dismissDonationBanner}
+              aria-label="Dismiss support banner"
             >
               <X className="h-4 w-4" />
             </Button>
           </div>
-          <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left z-10 w-full">
-            <div className="flex bg-primary/10 p-3 rounded-full text-primary shrink-0">
+          <div className="z-10 flex w-full flex-col items-center gap-4 text-center sm:flex-row sm:text-left">
+            <div className="flex shrink-0 rounded-full bg-primary/10 p-3 text-primary">
               <Heart className="h-6 w-6" />
             </div>
             <div className="flex-1 sm:pr-6">
-              <p className="font-bold text-lg leading-tight mb-2 sm:mb-1 text-foreground">
-                Support Universeaty!
+              <p className="mb-1 text-base font-bold leading-tight text-foreground">
+                Support Universeaty
               </p>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm leading-relaxed text-muted-foreground">
                 This project is run out-of-pocket and has processed over 20,000 watch requests. If
                 it helped you get a seat, please consider supporting the development.
               </p>
@@ -262,27 +282,88 @@ export const CourseDetailsDisplay: React.FC = () => {
           <Button
             variant="default"
             size="lg"
-            className="w-full lg:w-auto font-bold shadow-md z-10 whitespace-nowrap bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary"
+            className="z-10 w-full shrink-0 font-semibold whitespace-nowrap shadow-md lg:w-auto"
             onClick={() => window.open("https://ko-fi.com/ameenalasady", "_blank")}
           >
+            <Heart className="mr-2 h-4 w-4" />
             Support on Ko-fi
           </Button>
         </div>
       )}
 
-      <Card className="mt-6 border-border/40 bg-card/30 backdrop-blur-sm overflow-hidden flex flex-col gap-0 py-0">
-        <CardHeader className="px-4 sm:px-6 pt-6 pb-4">
-          <CardTitle className="text-2xl sm:text-3xl font-bold">{selectedCourse}</CardTitle>
-          <CardDescription className="text-sm sm:text-base">
-            Sections for <span className="font-semibold">{selectedCourse}</span> in{" "}
-            <span className="font-semibold">{termName}</span>.
-            <span className="hidden sm:inline">
-              {" "}
-              Click <Eye className="inline h-4 w-4 mx-1 align-middle" /> to watch a closed section.
-            </span>
+      <Card className="flex flex-col gap-0 overflow-hidden border-border/50 bg-card/40 py-0 shadow-sm backdrop-blur-sm">
+        <CardHeader className="px-4 pt-6 pb-5 sm:px-6 border-b border-border/40">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <CardTitle className="text-2xl font-bold tracking-tight sm:text-3xl">
+              {offering?.title || selectedCourse}
+            </CardTitle>
+            {offering?.title && (
+              <Badge
+                variant="secondary"
+                className="rounded-md px-2.5 py-1 font-mono text-xs font-semibold tracking-wide"
+              >
+                {selectedCourse}
+              </Badge>
+            )}
+          </div>
+          {offering?.academic_group && termbundle?.academic_groups?.[offering.academic_group] && (
+            <p className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <BookMarked className="h-3.5 w-3.5" />
+              {termbundle.academic_groups[offering.academic_group]}
+            </p>
+          )}
+          {offering?.description && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="-ml-2 mt-2 h-8 gap-1.5 px-2 text-xs font-medium text-muted-foreground hover:text-foreground sm:hidden"
+              onClick={() => setIsDescriptionExpanded((v) => !v)}
+              aria-expanded={isDescriptionExpanded}
+            >
+              <Info className="h-3.5 w-3.5" />
+              Course description
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform duration-200",
+                  isDescriptionExpanded && "rotate-180"
+                )}
+              />
+            </Button>
+          )}
+          <CardDescription
+            className={cn(
+              "mt-2 max-w-3xl text-sm leading-relaxed sm:text-[15px]",
+              offering?.description && !isDescriptionExpanded && "hidden sm:block"
+            )}
+          >
+            {offering?.description ? (
+              <span className="whitespace-pre-line">{offering.description}</span>
+            ) : (
+              <>
+                Sections for <span className="font-semibold">{selectedCourse}</span> in{" "}
+                <span className="font-semibold">{termName}</span>. Click{" "}
+                <Eye className="mx-0.5 inline h-4 w-4 align-[-0.15em]" /> to watch a closed section.
+              </>
+            )}
           </CardDescription>
+          {offering && (offering.credits > 0 || offering.instructor) && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {offering.credits > 0 && (
+                <Badge variant="outline" className="gap-1.5 rounded-md px-2.5 py-1 text-xs">
+                  <Coins className="h-3 w-3 text-muted-foreground" />
+                  {offering.credits} credits
+                </Badge>
+              )}
+              {offering.instructor && (
+                <Badge variant="outline" className="gap-1.5 rounded-md px-2.5 py-1 text-xs">
+                  <User className="h-3 w-3 text-muted-foreground" />
+                  {offering.instructor}
+                </Badge>
+              )}
+            </div>
+          )}
         </CardHeader>
-        <CardContent className="space-y-8 px-4 sm:px-6 pb-8">
+        <CardContent className="space-y-6 px-4 py-6 sm:px-6">
           {/* Course Stats Panel */}
           <CourseStatsPanel
             termId={selectedTerm}
@@ -292,34 +373,41 @@ export const CourseDetailsDisplay: React.FC = () => {
 
           {/* Batch Watch Button */}
           {closedSections.length > 0 && (
-            <div className="bg-muted/20 border border-border/40 p-4 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex flex-col items-center justify-between gap-4 rounded-xl border border-border/50 bg-muted/20 p-4 sm:flex-row sm:p-5">
               <div className="text-center sm:text-left">
-                <p className="font-bold text-lg leading-tight">Watch All Sections</p>
-                <p className="text-sm text-muted-foreground">
-                  There are {closedSections.length} closed sections for this course.
+                <p className="text-base font-bold leading-tight">Watch All Sections</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  There {closedSections.length === 1 ? "is" : "are"}{" "}
+                  <span className="font-semibold text-foreground">{closedSections.length}</span>{" "}
+                  closed {closedSections.length === 1 ? "section" : "sections"} for this course.
                 </p>
               </div>
               <Button
                 variant="secondary"
                 size="lg"
-                className="w-full sm:w-auto font-bold shadow-sm border border-border/50 hover:bg-secondary/80 h-12 px-8"
+                className="h-11 w-full shrink-0 border border-border/50 px-6 font-semibold shadow-sm hover:bg-secondary/80 sm:w-auto"
                 onClick={() => {
                   setIsBatchMode(true);
                   setIsWatchDialogOpen(true);
                 }}
               >
-                <Eye className="mr-2 h-5 w-5" />
+                <Eye className="mr-2 h-4 w-4" />
                 Watch All ({closedSections.length})
               </Button>
             </div>
           )}
 
           {/* History Range Selector */}
-          <div className="flex items-center justify-end gap-2 -mt-4">
-            <History className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-xs text-muted-foreground">History range:</span>
+          <div className="flex items-center justify-between gap-3 border-t border-border/40 pt-5">
+            <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <History className="h-3.5 w-3.5" />
+              Seat history range
+            </span>
             <Select value={String(historyHours)} onValueChange={(v) => setHistoryHours(Number(v))}>
-              <SelectTrigger className="h-7 w-[110px] text-xs border-border/50 bg-muted/20 focus:ring-0">
+              <SelectTrigger
+                className="h-9 w-[130px] rounded-lg border-border/50 bg-muted/20 text-xs"
+                aria-label="Seat history range"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -331,7 +419,7 @@ export const CourseDetailsDisplay: React.FC = () => {
           </div>
 
           {/* Map entries and render SectionBlock */}
-          <div className="space-y-12">
+          <div className="space-y-10">
             {courseDetailEntries.map(([blockType, sections], index) => (
               <SectionBlock
                 key={blockType}
@@ -347,10 +435,10 @@ export const CourseDetailsDisplay: React.FC = () => {
             ))}
           </div>
         </CardContent>
-        <CardFooter className="text-xs sm:text-sm text-muted-foreground border-t border-border/30 bg-muted/20 px-4 py-5 sm:px-6 m-0 w-full rounded-none">
+        <CardFooter className="m-0 w-full border-t border-border/40 bg-muted/20 px-4 py-4 text-xs text-muted-foreground sm:px-6 sm:text-sm">
           <div className="flex gap-3">
-            <Info className="h-5 w-5 shrink-0 opacity-60" />
-            <p>
+            <Info className="h-4 w-4 shrink-0 opacity-60 sm:mt-0.5" />
+            <p className="leading-relaxed">
               Seat availability is updated periodically. Notifications are sent when a watched seat
               becomes available. We track historical trends to help you decide which sections to
               watch.
