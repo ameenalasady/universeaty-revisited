@@ -56,11 +56,26 @@ const CourseStatsPanel: React.FC<CourseStatsPanelProps> = ({ termId, courseCode,
   // Don't render anything if loading and no data
   if (isLoading) {
     return (
-      <div className="mb-6 p-4 rounded-xl border border-border/40 bg-muted/20 backdrop-blur-sm">
-        <div className="flex items-center gap-3">
-          <Skeleton className="h-4 w-4" />
-          <Skeleton className="h-4 w-48" />
-          <Skeleton className="h-5 w-16" />
+      <div className="mb-6 border border-border/40 bg-muted/20 rounded-xl backdrop-blur-sm p-4 animate-pulse">
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-8">
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-9 w-9 rounded-lg" />
+              <div className="flex flex-col gap-1">
+                <Skeleton className="h-5 w-10" />
+                <Skeleton className="h-4 w-24" />
+              </div>
+            </div>
+            <Skeleton className="h-7 w-28 rounded-md" />
+          </div>
+          <div className="flex flex-col gap-2 sm:items-end">
+            <Skeleton className="h-3 w-28" />
+            <div className="flex flex-wrap gap-2 sm:justify-end">
+              <Skeleton className="h-6 w-20 rounded-md" />
+              <Skeleton className="h-6 w-20 rounded-md" />
+              <Skeleton className="h-6 w-20 rounded-md" />
+            </div>
+          </div>
         </div>
       </div>
     );
