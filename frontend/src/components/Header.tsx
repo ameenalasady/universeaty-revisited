@@ -11,7 +11,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ currentView = "home", onViewChange }) => {
   return (
     <header className="border-b border-border/40">
-      <div className="flex flex-col items-center gap-5 py-6 text-center sm:flex-row sm:justify-between sm:py-5 sm:text-left">
+      <div className="flex flex-col items-center gap-4 py-4 text-center sm:flex-row sm:justify-between sm:gap-5 sm:py-5 sm:text-left">
         {/* Brand */}
         <button
           type="button"
@@ -38,7 +38,7 @@ export const Header: React.FC<HeaderProps> = ({ currentView = "home", onViewChan
             <Button
               variant={currentView === "manage" ? "outline" : "secondary"}
               size="default"
-              className="h-10 w-full gap-2 font-semibold sm:w-auto"
+              className="h-11 w-full gap-2 font-semibold sm:h-10 sm:w-auto"
               onClick={() => onViewChange(currentView === "manage" ? "home" : "manage")}
             >
               {currentView === "manage" ? (

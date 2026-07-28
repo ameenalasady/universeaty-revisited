@@ -61,7 +61,7 @@ const SectionBlock: React.FC<SectionBlockProps> = ({
     <Button
       variant="ghost"
       size="sm"
-      className="gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+      className="h-10 gap-1.5 px-4 text-xs font-medium text-muted-foreground hover:text-foreground sm:h-8 sm:px-3"
       onClick={() => setShowAll((v) => !v)}
       aria-expanded={showAll}
     >

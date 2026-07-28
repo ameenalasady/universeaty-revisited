@@ -27,7 +27,7 @@ const CourseDetailsSkeleton: React.FC = () => (
     <CardContent className="space-y-6 px-4 sm:px-6 py-6">
       {/* Stats Panel */}
       <div className="border border-border/50 bg-muted/20 rounded-xl backdrop-blur-sm p-4">
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-8">
             <div className="flex items-center gap-3">
               <Skeleton className="h-9 w-9 rounded-lg" />

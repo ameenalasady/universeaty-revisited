@@ -124,6 +124,16 @@
     font-feature-settings:
       "kern" 1,
       "liga" 1;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Remove the 300ms tap delay and prevent double-tap zoom on interactive elements */
+  button,
+  a,
+  [role="button"],
+  summary,
+  label {
+    touch-action: manipulation;
   }
 
   /* Subtle depth: soft glow at the top of the page (dark theme) */
@@ -157,3 +167,11 @@
 }
 
 @tailwind utilities;
+
+/* Safe-area helpers for notched / rounded mobile displays */
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}

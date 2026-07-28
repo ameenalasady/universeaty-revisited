@@ -21,15 +21,15 @@ const links = [
 
 export const Footer: React.FC = () => {
   return (
-    <footer className="mt-auto border-t border-border/40 py-6">
-      <nav className="flex flex-wrap items-center justify-center gap-x-1 gap-y-1 sm:gap-x-2">
+    <footer className="mt-auto border-t border-border/40 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+      <nav className="flex flex-wrap items-center justify-center gap-x-1 gap-y-1.5 sm:gap-x-2">
         {links.map(({ href, label, icon: Icon }) => (
           <a
             key={href}
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground sm:text-sm"
+            className="flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground sm:px-2.5 sm:py-1.5 sm:text-sm"
           >
             <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             {label}

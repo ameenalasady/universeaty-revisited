@@ -10,7 +10,7 @@ import {
 import { useTerms } from "../hooks/useCourseData";
 import { toast } from "sonner";
 import { Button } from "../components/ui/button";
-import { Loader2, Trash2, Search, Filter, Heart, X, History, RefreshCw } from "lucide-react";
+import { Loader2, Trash2, Search, Filter, History, RefreshCw } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Input } from "../components/ui/input";
 import {
@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
+import DonationBanner from "./DonationBanner";
 
 export const WatchDashboard: React.FC = () => {
   const queryClient = useQueryClient();
@@ -135,7 +136,7 @@ export const WatchDashboard: React.FC = () => {
     return (
       <div
         key={w.id}
-        className="group relative mb-3 rounded-xl border border-border/50 bg-muted/10 p-4 backdrop-blur-sm transition-colors hover:border-border hover:bg-muted/20 sm:p-5"
+        className="group relative rounded-xl border border-border/50 bg-muted/10 p-4 backdrop-blur-sm transition-colors hover:border-border hover:bg-muted/20 sm:p-5"
       >
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0 space-y-2">
@@ -197,7 +198,7 @@ export const WatchDashboard: React.FC = () => {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 rounded-lg text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                className="h-10 w-10 rounded-lg text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary sm:h-9 sm:w-9"
                 onClick={() =>
                   watchAgainMutation.mutate({
                     email: authData?.email || "",
@@ -223,7 +224,7 @@ export const WatchDashboard: React.FC = () => {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                className="h-10 w-10 rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive sm:h-9 sm:w-9"
                 onClick={() => cancelMutation.mutate(w.id)}
                 disabled={cancelMutation.isPending}
                 title="Cancel Watch"
@@ -244,42 +245,7 @@ export const WatchDashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {showBanner && watches && watches.length > 0 && (
-        <div className="relative flex flex-col items-center justify-between gap-5 overflow-hidden rounded-xl border border-primary/20 bg-primary/5 p-5 pr-12 animate-in fade-in slide-in-from-top-4 duration-500 lg:flex-row">
-          <div className="absolute top-2 right-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-full text-muted-foreground hover:bg-primary/10"
-              onClick={handleDismissBanner}
-              aria-label="Dismiss support banner"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-          <div className="z-10 flex w-full flex-col items-center gap-4 text-center sm:flex-row sm:text-left">
-            <div className="flex shrink-0 rounded-full bg-primary/10 p-3 text-primary">
-              <Heart className="h-6 w-6" />
-            </div>
-            <div className="flex-1 sm:pr-6">
-              <p className="mb-1 text-base font-bold leading-tight text-foreground">
-                Support Universeaty
-              </p>
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                This project is run out-of-pocket and has processed over 20,000 watch requests. If
-                it helped you get a seat, please consider supporting the development.
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="default"
-            size="lg"
-            className="z-10 w-full shrink-0 font-semibold whitespace-nowrap shadow-md lg:w-auto"
-            onClick={() => window.open("https://ko-fi.com/ameenalasady", "_blank")}
-          >
-            <Heart className="mr-2 h-4 w-4" />
-            Support on Ko-fi
-          </Button>
-        </div>
+        <DonationBanner onDismiss={handleDismissBanner} />
       )}
 
       <div className="flex flex-col gap-3 sm:flex-row">
@@ -344,7 +310,7 @@ export const WatchDashboard: React.FC = () => {
                   {activeWatches.length}
                 </span>
               </h3>
-              {activeWatches.map(renderWatch)}
+              <div className="space-y-3">{activeWatches.map(renderWatch)}</div>
             </section>
           )}
           {cancelledWatches.length > 0 && (
@@ -355,7 +321,7 @@ export const WatchDashboard: React.FC = () => {
                   {cancelledWatches.length}
                 </span>
               </h3>
-              <div className="opacity-60">{cancelledWatches.map(renderWatch)}</div>
+              <div className="space-y-3 opacity-60">{cancelledWatches.map(renderWatch)}</div>
             </section>
           )}
           {oldTermWatches.length > 0 && (
@@ -363,7 +329,7 @@ export const WatchDashboard: React.FC = () => {
               <h3 className="mb-4 flex items-center gap-2 text-base font-semibold tracking-tight text-muted-foreground">
                 <History className="h-4 w-4" /> Past Terms
               </h3>
-              <div className="opacity-60">{oldTermWatches.map(renderWatch)}</div>
+              <div className="space-y-3 opacity-60">{oldTermWatches.map(renderWatch)}</div>
             </section>
           )}
         </div>

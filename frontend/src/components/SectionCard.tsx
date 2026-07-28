@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { formatTimeblocks, isOnline, isEvening } from "@/lib/format";
 import { CourseDetailsSection } from "@/services/api";
 import SectionHistoryChart from "./SectionHistoryChart";
+import SeatStatusBadge from "./SeatStatusBadge";
 
 interface SectionCardProps {
   section: CourseDetailsSection;
@@ -41,29 +42,16 @@ const SectionCard: React.FC<SectionCardProps> = ({
           <div className="flex min-w-0 flex-col">
             <span className="text-lg font-bold tracking-tight">{section.section}</span>
             {section.location && (
-              <span className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+              <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                 <MapPin className="h-3 w-3 shrink-0" /> {section.location}
               </span>
             )}
           </div>
 
           <div className="flex shrink-0 flex-col items-end gap-1">
-            <Badge
-              variant="outline"
-              className={cn(
-                "rounded-md border px-2.5 py-1 text-xs font-bold",
-                hasOpenSeats
-                  ? "border-green-500/25 bg-green-500/10 text-green-400 hover:bg-green-500/10"
-                  : "border-red-500/25 bg-red-500/10 text-red-400 hover:bg-red-500/10"
-              )}
-            >
-              {hasOpenSeats ? "OPEN" : "FULL"}
-              <span className="ml-1.5 font-medium opacity-80">
-                {section.open_seats}/{section.total_seats}
-              </span>
-            </Badge>
+            <SeatStatusBadge openSeats={section.open_seats} totalSeats={section.total_seats} />
             {hasWaitlist && (
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 WL: {section.waitlist_count}/{section.waitlist_size}
               </span>
             )}
@@ -72,7 +60,7 @@ const SectionCard: React.FC<SectionCardProps> = ({
 
         {/* Schedule + badges */}
         {(schedule || online || evening) && (
-          <div className="-mt-1 flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {schedule && (
               <span className="text-xs leading-relaxed text-muted-foreground">{schedule}</span>
             )}
@@ -95,7 +83,7 @@ const SectionCard: React.FC<SectionCardProps> = ({
           </div>
         )}
 
-        <div className="flex items-center gap-2 pt-1">
+        <div className="flex items-center gap-2">
           <Button
             variant={hasOpenSeats ? "ghost" : "outline"}
             size="default"

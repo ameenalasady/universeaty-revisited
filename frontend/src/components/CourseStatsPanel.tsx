@@ -57,7 +57,7 @@ const CourseStatsPanel: React.FC<CourseStatsPanelProps> = ({ termId, courseCode,
   if (isLoading) {
     return (
       <div className="border border-border/50 bg-muted/20 rounded-xl backdrop-blur-sm p-4 animate-pulse">
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-8">
             <div className="flex items-center gap-3">
               <Skeleton className="h-9 w-9 rounded-lg" />
@@ -94,7 +94,7 @@ const CourseStatsPanel: React.FC<CourseStatsPanelProps> = ({ termId, courseCode,
 
   return (
     <div className="border border-border/50 bg-muted/20 rounded-xl backdrop-blur-sm animate-in fade-in slide-in-from-top-2 duration-300 p-4 sm:p-5">
-      <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         {/* Main Metrics */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-8">
           {/* Request Count */}

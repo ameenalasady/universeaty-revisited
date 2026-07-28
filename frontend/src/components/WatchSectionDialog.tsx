@@ -73,8 +73,24 @@ export const WatchSectionDialog: React.FC<WatchSectionDialogProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent
+        className={
+          "sm:max-w-[425px] " +
+          "max-sm:top-auto max-sm:bottom-0 max-sm:left-0 max-sm:right-0 max-sm:max-w-none " +
+          "max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none max-sm:rounded-t-2xl " +
+          "max-sm:border-x-0 max-sm:border-b-0 max-sm:p-5 " +
+          "max-sm:pb-[calc(1.25rem+env(safe-area-inset-bottom))] " +
+          "max-sm:data-[state=open]:slide-in-from-bottom-full " +
+          "max-sm:data-[state=closed]:slide-out-to-bottom-full " +
+          "max-sm:data-[state=open]:zoom-in-100 max-sm:data-[state=closed]:zoom-out-100"
+        }
+      >
         <form onSubmit={handleSubmit}>
+          {/* Drag handle — mobile sheet affordance */}
+          <div
+            aria-hidden="true"
+            className="mx-auto mb-3 h-1.5 w-12 shrink-0 rounded-full bg-muted sm:hidden"
+          />
           <DialogHeader>
             <DialogTitle>Watch {isBatch ? "All Closed Sections" : "Course Section"}</DialogTitle>
             <DialogDescription>
@@ -99,19 +115,19 @@ export const WatchSectionDialog: React.FC<WatchSectionDialogProps> = ({
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="email" className="text-right">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+              <Label htmlFor="email" className="text-left sm:text-right">
                 Email
               </Label>
-              <div className="col-span-3 relative">
-                <Mail className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <div className="relative sm:col-span-3">
+                <Mail className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="email"
                   type="email"
                   placeholder="you@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="pl-8"
+                  className="h-11 pl-8 sm:h-9"
                   required
                   aria-required="true"
                   aria-label="Email address for notification"
@@ -120,9 +136,14 @@ export const WatchSectionDialog: React.FC<WatchSectionDialogProps> = ({
               </div>
             </div>
           </div>
-          <DialogFooter className="flex-col sm:flex-row sm:justify-end gap-2">
+          <DialogFooter className="gap-2">
             <DialogClose asChild>
-              <Button type="button" variant="outline" disabled={isPending} className="rounded-lg">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isPending}
+                className="h-11 rounded-lg sm:h-9"
+              >
                 <XCircle className="mr-2 h-4 w-4" /> Cancel
               </Button>
             </DialogClose>
@@ -130,7 +151,7 @@ export const WatchSectionDialog: React.FC<WatchSectionDialogProps> = ({
               type="submit"
               disabled={isPending || !isValidEmail}
               aria-label="Submit watch request for this section"
-              className="rounded-lg"
+              className="h-11 rounded-lg sm:h-9"
             >
               {isPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

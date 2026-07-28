@@ -7,6 +7,7 @@ import { Eye, BarChart3, Monitor, Moon, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatTimeblocks, isOnline, isEvening } from "@/lib/format";
 import { CourseDetailsSection } from "@/services/api";
+import SeatStatusBadge from "./SeatStatusBadge";
 
 interface SectionRowProps {
   section: CourseDetailsSection;
@@ -25,7 +26,6 @@ const SectionRow: React.FC<SectionRowProps> = ({
   onToggleHistory,
   isHistoryExpanded,
 }) => {
-  const hasOpenSeats = section.open_seats > 0;
   const schedule = formatTimeblocks(section.timeblocks);
   const online = isOnline(section.attrs);
   const evening = isEvening(section.attrs);
@@ -85,20 +85,7 @@ const SectionRow: React.FC<SectionRowProps> = ({
       </TableCell>
       <TableCell className="py-3.5 text-center">
         <div className="flex flex-col items-center gap-1">
-          <Badge
-            variant="outline"
-            className={cn(
-              "text-xs font-semibold px-3 py-1 tracking-wide rounded-md border",
-              hasOpenSeats
-                ? "bg-green-500/10 text-green-400 border-green-500/25 hover:bg-green-500/10"
-                : "bg-red-500/10 text-red-400 border-red-500/25 hover:bg-red-500/10"
-            )}
-          >
-            {hasOpenSeats ? "OPEN" : "FULL"}
-            <span className="font-normal opacity-70 ml-1.5">
-              {section.open_seats}/{section.total_seats}
-            </span>
-          </Badge>
+          <SeatStatusBadge openSeats={section.open_seats} totalSeats={section.total_seats} />
           {hasWaitlist && (
             <p className="text-[11px] text-muted-foreground">
               WL: {section.waitlist_count}/{section.waitlist_size}

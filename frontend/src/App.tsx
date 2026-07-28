@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Toaster } from "sonner";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { GraduationCap } from "lucide-react";
@@ -18,6 +19,7 @@ import { CourseSelectionProvider } from "@/contexts/CourseSelectionContext";
  * Main application shell. Wraps content with context providers.
  */
 function App() {
+  const isMobile = useMediaQuery("(max-width: 639px)");
   const [view, setView] = useState<"home" | "manage">(() => {
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has("token") || urlParams.get("view") === "manage") {
@@ -48,7 +50,12 @@ function App() {
     <TooltipProvider>
       <CourseSelectionProvider>
         <div className="mx-auto flex min-h-[100dvh] w-full max-w-5xl flex-col px-4 sm:px-6 lg:px-8">
-          <Toaster richColors position="top-right" theme="system" closeButton />
+          <Toaster
+            richColors
+            position={isMobile ? "top-center" : "top-right"}
+            theme="system"
+            closeButton
+          />
           <Header currentView={view} onViewChange={setView} />
 
           <main className="flex-grow py-6 sm:py-8">

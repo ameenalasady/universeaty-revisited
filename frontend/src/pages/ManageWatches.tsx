@@ -168,7 +168,7 @@ export const ManageWatches: React.FC = () => {
             variant="outline"
             size="sm"
             onClick={() => logoutMutation.mutate()}
-            className="w-full shrink-0 rounded-lg border-border/50 px-4 transition-colors hover:border-destructive/30 hover:bg-destructive/5 hover:text-destructive sm:w-auto"
+            className="h-10 w-full shrink-0 rounded-lg border-border/50 px-4 transition-colors hover:border-destructive/30 hover:bg-destructive/5 hover:text-destructive sm:h-8 sm:w-auto"
           >
             <LogOut className="h-4 w-4 mr-2" /> Logout
           </Button>
