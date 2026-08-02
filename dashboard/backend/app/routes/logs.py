@@ -13,7 +13,6 @@ def api_logs_stream():
     response = Response(tail_log(LOG_FILE_PATH), mimetype="text/event-stream")
     response.headers["Cache-Control"] = "no-cache, no-transform"
     response.headers["X-Accel-Buffering"] = "no"
-    response.headers["Connection"] = "keep-alive"
     return response
 
 
