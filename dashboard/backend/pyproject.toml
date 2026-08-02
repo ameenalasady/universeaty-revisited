@@ -1,0 +1,34 @@
+[tool.ruff]
+# Target the Python version in use
+target-version = "py311"
+line-length = 88
+
+# Which directories to check
+src = ["app", "run.py"]
+
+[tool.ruff.lint]
+# Rule sets:
+#   E/W  — pycodestyle errors & warnings
+#   F    — Pyflakes (undefined names, unused imports, etc.)
+#   I    — isort (import ordering)
+#   UP   — pyupgrade (modernise syntax)
+#   B    — flake8-bugbear (common bug patterns)
+select = ["E", "W", "F", "I", "UP", "B"]
+
+# Rules that are too noisy or conflict with project style
+ignore = [
+    "E501",   # line too long — handled by the formatter
+    "B008",   # do not perform function calls in default arguments (Flask patterns)
+    "UP007",  # Use X | Y for union types — keep Optional[] for clarity
+    "BLE001", # blind except — the dashboard is defensive by design
+    "S110",   # try-except-pass — intentional no-op fallbacks
+    "DTZ005", # datetime.now() without tzinfo — app runs in a single timezone
+    "DTZ007", # datetime.strptime without zone — parsing systemd timestamps
+    "PLW1510", # subprocess.run without check — return code handled by caller
+]
+
+[tool.ruff.format]
+# Use double quotes (PEP 8 default)
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

@@ -5,8 +5,8 @@ import sys
 # Append backend root to PYTHONPATH dynamically to prevent import errors
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from waitress import serve
 from app.main import app
+from waitress import serve
 
 if __name__ == "__main__":
     print("Starting Universeaty Dashboard...")
