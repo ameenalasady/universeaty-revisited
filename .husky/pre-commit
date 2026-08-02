@@ -1,14 +1,21 @@
 echo "🔍 Running pre-commit checks..."
 
-# ── Frontend: ESLint + Prettier via lint-staged ──────────────────────────────
-STAGED_FRONTEND=$(git diff --cached --name-only | grep '^frontend/' || true)
-if [ -n "$STAGED_FRONTEND" ]; then
-  echo "🎨 Linting & formatting frontend staged files..."
+# ── Main frontend: ESLint + Prettier via lint-staged ─────────────────────────
+STAGED_MAIN_FRONTEND=$(git diff --cached --name-only | grep '^frontend/' || true)
+if [ -n "$STAGED_MAIN_FRONTEND" ]; then
+  echo "🎨 Linting & formatting main frontend staged files..."
   (cd frontend && npx lint-staged) || exit 1
 fi
 
+# ── Dashboard frontend: ESLint + Prettier via lint-staged ────────────────────
+STAGED_DASH_FRONTEND=$(git diff --cached --name-only | grep '^dashboard/frontend/' || true)
+if [ -n "$STAGED_DASH_FRONTEND" ]; then
+  echo "🎨 Linting & formatting dashboard frontend staged files..."
+  (cd dashboard/frontend && npx lint-staged) || exit 1
+fi
+
 # ── Backend: Ruff lint + format on staged Python files ───────────────────────
-STAGED_PY=$(git diff --cached --name-only | grep '^backend/.*\.py$' || true)
+STAGED_PY=$(git diff --cached --name-only | grep -E '^(backend|dashboard/backend)/.*\.py$' || true)
 if [ -n "$STAGED_PY" ]; then
   echo "🐍 Linting & formatting backend staged Python files..."
 
