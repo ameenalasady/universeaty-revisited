@@ -1,16 +1,38 @@
-# React + Vite
+# Universeaty Dashboard — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 + TypeScript admin frontend for the Universeaty scraper, built with Vite 8,
+Tailwind CSS v4, shadcn/ui components, recharts, and sonner. Designed to match the main
+universeaty.ca app's dark, monochrome, glassy look (Montserrat, `#0a0a0a` base, OKLCH tokens).
 
-Currently, two official plugins are available:
+## Scripts
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```bash
+npm run dev          # Vite dev server
+npm run build        # tsc type-check + build → ../backend/static (served by Flask)
+npm run lint         # ESLint
+npm run lint:fix
+npm run format       # Prettier --write
+npm run format:check
+```
 
-## React Compiler
+## Conventions
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- All shadcn/ui primitives live in `src/components/ui/` (copy from `frontend/src/components/ui/`
+  in the main app) and are ignored by ESLint (generated code).
+- Tailwind tokens in `src/index.css` mirror the main app's `:root`/`.dark` blocks — keep them in
+  sync when the main app's theme changes.
+- The API base is `''` (same origin) in production builds and `http://192.168.0.43:8085` in dev
+  (override with `VITE_DASHBOARD_API_URL`).
+- Log lines are parsed client-side by `src/lib/logs.ts` against the scraper's
+  `LOG_FORMAT` (`asctime - level - logger:lineno - thread - message`).
 
-## Expanding the ESLint configuration
+## Dependencies
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+| Purpose       | Packages                                                            |
+| ------------- | ------------------------------------------------------------------- |
+| UI primitives | `@radix-ui/*`, `class-variance-authority`, `clsx`, `tailwind-merge` |
+| Icons         | `lucide-react`                                                      |
+| Charts        | `recharts`                                                          |
+| Toasts        | `sonner`                                                            |
+| Styling       | `tailwindcss`, `@tailwindcss/vite`, `tw-animate-css`                |
+| Tooling       | `typescript`, `eslint`, `prettier`, `lint-staged`                   |
